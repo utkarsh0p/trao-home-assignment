@@ -13,6 +13,7 @@ const COLUMNS = [
     title: "Account",
     links: [
       { href: "/login", label: "Sign in" },
+      { href: "/register", label: "Create an account" },
       { href: "/profile", label: "Profile" },
     ],
   },

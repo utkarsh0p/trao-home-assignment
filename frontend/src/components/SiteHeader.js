@@ -165,7 +165,10 @@ function MobilePanel({ pathname }) {
           <MobileLink href="/profile" label={user?.email ?? "Profile"} pathname={pathname} />
         ) : (
           status === "unauthenticated" && (
-            <MobileLink href="/login" label="Sign in" pathname={pathname} />
+            <>
+              <MobileLink href="/login" label="Sign in" pathname={pathname} />
+              <MobileLink href="/register" label="Create an account" pathname={pathname} />
+            </>
           )
         )}
       </nav>
