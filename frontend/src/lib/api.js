@@ -82,3 +82,41 @@ export async function listKits(signal) {
   const { kits } = await apiFetch("/api/kits", { signal });
   return kits ?? [];
 }
+
+export async function deleteKit(kitId) {
+  return apiFetch(`/api/kits/${kitId}`, { method: "DELETE" });
+}
+
+export async function register(credentials) {
+  const { user } = await apiFetch("/api/auth/register", {
+    method: "POST",
+    body: credentials,
+  });
+  return user;
+}
+
+export async function login(credentials) {
+  const { user } = await apiFetch("/api/auth/login", {
+    method: "POST",
+    body: credentials,
+  });
+  return user;
+}
+
+export async function logout() {
+  return apiFetch("/api/auth/logout", { method: "POST" });
+}
+
+/** Returns the whole body — callers need `duplicate` as well as the job. */
+export async function createJob({ jd, companyUrl, days }) {
+  return apiFetch("/api/jobs", {
+    method: "POST",
+    // days is z.number(), not z.coerce.number() — a string here fails validation.
+    body: { jd, companyUrl, days: Number(days) },
+  });
+}
+
+export async function getJob(jobId, signal) {
+  const { job } = await apiFetch(`/api/jobs/${jobId}`, { signal });
+  return job;
+}
