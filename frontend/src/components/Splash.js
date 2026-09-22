@@ -1,12 +1,13 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Wordmark from "@/components/Wordmark";
 
 const SEEN_KEY = "primer:splash";
 const WIPE_SECONDS = 0.9;
 const HOLD_SECONDS = 0.55;
+const MAX_SPLASH_MS = 2600;
 
 // The wordmark wipes in from the left, holds for a beat, and the whole sheet lifts
 // away. Shown once per tab session — a splash you cannot get past is a toll booth.
@@ -35,12 +36,26 @@ export default function Splash() {
     }
 
     setPhase("playing");
-    const { overflow } = document.body.style;
+  }, []);
+
+  // Keyed to the phase, not to the component. Splash itself never unmounts — only the
+  // sheet inside it does — so a cleanup hung off mount would leave the page locked.
+  useEffect(() => {
+    if (phase !== "playing") return;
+    const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = overflow;
+      document.body.style.overflow = previous;
     };
-  }, []);
+  }, [phase]);
+
+  // A sheet that covers the page and holds the scroll must not depend on one animation
+  // callback firing. If the wipe never reports finishing, lift it anyway.
+  useEffect(() => {
+    if (phase !== "playing") return;
+    const timer = window.setTimeout(() => setPhase("gone"), MAX_SPLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [phase]);
 
   if (phase === "done") return null;
 
@@ -83,10 +98,15 @@ export default function Splash() {
                 <Wordmark size="lg" />
               </motion.span>
 
-              {/* Sits at the trailing edge of the wipe and blinks twice — image 1's cursor. */}
-              <span
-                className="ml-1 block h-[34px] w-[3px] bg-accent sm:ml-1.5 sm:h-[52px]
-                           sm:w-[4px] lg:h-[62px]"
+              {/* Rides the trailing edge of the wipe: the clip reveals 0%→100% of the
+                  wordmark's width, so the caret travels the same 0%→100% on the same
+                  curve and the two stay locked together. Then it blinks twice. */}
+              <motion.span
+                className="absolute inset-y-0 my-auto ml-1 block h-[34px] w-[3px] bg-accent
+                           sm:ml-1.5 sm:h-[52px] sm:w-[4px] lg:h-[62px]"
+                initial={{ left: "0%" }}
+                animate={phase === "playing" ? { left: "100%" } : undefined}
+                transition={{ duration: WIPE_SECONDS, ease: [0.22, 1, 0.36, 1] }}
                 style={{ animation: `caret-blink 0.85s ${WIPE_SECONDS}s 2 step-end` }}
               />
             </span>
