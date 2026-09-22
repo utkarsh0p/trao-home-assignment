@@ -1,14 +1,8 @@
-import ComingSoon from "@/components/ComingSoon";
+import KitBuilder from "@/components/kit/KitBuilder";
 
 export const metadata = { title: "Kit — primer." };
 
-export default function KitPage() {
-  return (
-    <ComingSoon title="The kit builder">
-      The company brief, the role breakdown, the question bank, the flashcards and the
-      day-by-day schedule &mdash; all of it editable, reorderable, and regenerable a
-      section at a time without losing your edits. This is the big one, and it gets its
-      own pass.
-    </ComingSoon>
-  );
+export default async function KitPage({ params }) {
+  const { id } = await params;
+  return <KitBuilder kitId={id} />;
 }

@@ -10,14 +10,6 @@ const COLUMNS = [
     ],
   },
   {
-    title: "Account",
-    links: [
-      { href: "/login", label: "Sign in" },
-      { href: "/register", label: "Create an account" },
-      { href: "/profile", label: "Profile" },
-    ],
-  },
-  {
     title: "About",
     links: [{ href: "/#how-it-works", label: "How it works" }],
   },
@@ -27,7 +19,7 @@ export default function SiteFooter() {
   return (
     <footer className="border-t border-ink/10 bg-surface px-5 py-16 sm:px-8 lg:px-12">
       <div className="mx-auto w-full max-w-[1320px]">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr]">
           <div>
             <Wordmark size="sm" />
             <p className="mt-4 max-w-[320px] text-[15px] leading-[1.6] text-ink/60">

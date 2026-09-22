@@ -87,6 +87,67 @@ export async function deleteKit(kitId) {
   return apiFetch(`/api/kits/${kitId}`, { method: "DELETE" });
 }
 
+export async function getKit(kitId, signal) {
+  const { kit } = await apiFetch(`/api/kits/${kitId}`, { signal });
+  return kit;
+}
+
+/** The Appendix A projection — seven keys, none of our bookkeeping fields. */
+export async function exportKit(kitId) {
+  return apiFetch(`/api/kits/${kitId}/export`);
+}
+
+/* Every kit mutation answers with the whole kit, so each of these returns one. */
+
+const kitMutation = (path, method) => async (kitId, body) => {
+  const { kit } = await apiFetch(`/api/kits/${kitId}${path}`, { method, body });
+  return kit;
+};
+
+export const addQuestion = kitMutation("/questions", "POST");
+export const addFlashcard = kitMutation("/flashcards", "POST");
+export const updateBrief = kitMutation("/brief", "PATCH");
+export const reorderQuestions = kitMutation("/questions/reorder", "PATCH");
+
+export async function updateQuestion(kitId, questionId, patch) {
+  const { kit } = await apiFetch(`/api/kits/${kitId}/questions/${questionId}`, {
+    method: "PATCH",
+    body: patch,
+  });
+  return kit;
+}
+
+export async function deleteQuestion(kitId, questionId) {
+  const { kit } = await apiFetch(`/api/kits/${kitId}/questions/${questionId}`, {
+    method: "DELETE",
+  });
+  return kit;
+}
+
+export async function updateFlashcard(kitId, flashcardId, patch) {
+  const { kit } = await apiFetch(`/api/kits/${kitId}/flashcards/${flashcardId}`, {
+    method: "PATCH",
+    body: patch,
+  });
+  return kit;
+}
+
+export async function deleteFlashcard(kitId, flashcardId) {
+  const { kit } = await apiFetch(`/api/kits/${kitId}/flashcards/${flashcardId}`, {
+    method: "DELETE",
+  });
+  return kit;
+}
+
+/** 202 + a job. The kit is not returned — poll, then refetch. */
+export async function regenerateSection(kitId, section) {
+  const { job } = await apiFetch(`/api/kits/${kitId}/regenerate`, {
+    method: "POST",
+    body: { section },
+  });
+  return job;
+}
+
 export async function register(credentials) {
   const { user } = await apiFetch("/api/auth/register", {
     method: "POST",
