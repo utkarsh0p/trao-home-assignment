@@ -201,7 +201,7 @@ function AddQuestion({ kit, category, mutate }) {
         autoFocus
         placeholder="What would you want to be asked?"
         className="w-full resize-y rounded-xl border border-ink/[0.07] bg-paper px-3.5 py-2.5
-                   text-[15px] text-ink placeholder:text-ink/35 focus:border-accent/40
+                   text-base text-ink placeholder:text-ink/35 focus:border-accent/40 sm:text-[15px]
                    focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
       />
       <div className="mt-3 flex gap-2">

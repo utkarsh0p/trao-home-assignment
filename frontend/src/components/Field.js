@@ -1,9 +1,11 @@
 // Label + control + error, wired for screen readers. style.md §6's input recipe, in one
 // place so aria-invalid and aria-describedby can't be forgotten on a field-by-field basis.
 
+// 16px below sm, not 15: iOS Safari zooms the page on any control it considers
+// smaller than that, and the zoom does not come back when the field blurs.
 const CONTROL =
-  "w-full rounded-xl border bg-paper text-[15px] text-ink placeholder:text-ink/35 " +
-  "transition-[border-color,box-shadow] duration-200 focus:outline-none " +
+  "w-full rounded-xl border bg-paper text-base text-ink placeholder:text-ink/35 " +
+  "sm:text-[15px] transition-[border-color,box-shadow] duration-200 focus:outline-none " +
   "focus-visible:ring-2 focus-visible:ring-accent/30";
 
 export default function Field({

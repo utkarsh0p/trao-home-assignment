@@ -73,7 +73,10 @@ function Builder({ kitId }) {
     <div className="bg-paper pb-20">
       <KitHeader kit={kit} />
 
-      <div className="sticky top-20 z-30 border-b border-ink/10 bg-paper/85 backdrop-blur">
+      {/* Pins to the very top: the site header scrolls away on this page, so there is
+          nothing above it to clear. Solid fill — a translucent one let the panel text
+          ghost through as it scrolled underneath. */}
+      <div className="sticky top-0 z-30 border-b border-ink/10 bg-paper">
         <div className="mx-auto w-full max-w-[1320px] px-5 sm:px-8 lg:px-12">
           <div role="tablist" aria-label="Kit sections" className="-mb-px flex gap-1 overflow-x-auto">
             {TABS.map((item) => (

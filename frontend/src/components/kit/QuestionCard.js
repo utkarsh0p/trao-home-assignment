@@ -104,9 +104,9 @@ export default function QuestionCard({
             value={question.difficulty ?? 2}
             onChange={(event) => onPatch(question, { difficulty: Number(event.target.value) })}
             aria-label={`Difficulty for question ${question.id}`}
-            className="cursor-pointer rounded-lg border border-ink/[0.07] bg-paper px-2 py-1 text-xs
+            className="cursor-pointer rounded-lg border border-ink/[0.07] bg-paper px-2 py-1 text-base
                        font-semibold normal-case tracking-normal text-ink/70 focus:border-accent/40
-                       focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+                       focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 sm:text-xs"
           >
             {[1, 2, 3].map((level) => (
               <option key={level} value={level}>
@@ -122,9 +122,9 @@ export default function QuestionCard({
             value={question.category}
             onChange={(event) => onMoveCategory(question, event.target.value)}
             aria-label={`Category for question ${question.id}`}
-            className="cursor-pointer rounded-lg border border-ink/[0.07] bg-paper px-2 py-1 text-xs
+            className="cursor-pointer rounded-lg border border-ink/[0.07] bg-paper px-2 py-1 text-base
                        font-semibold normal-case tracking-normal text-ink/70 focus:border-accent/40
-                       focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+                       focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 sm:text-xs"
           >
             {QUESTION_CATEGORIES.map((category) => (
               <option key={category} value={category}>
@@ -134,8 +134,8 @@ export default function QuestionCard({
           </select>
         </label>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink/50">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink/50">
             Covers
           </span>
           <RequirementPicker

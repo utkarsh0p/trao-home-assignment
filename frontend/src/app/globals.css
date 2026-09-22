@@ -24,11 +24,20 @@
   --shadow-float:  0 30px 70px -20px rgb(18 19 22 / 0.5);
 }
 
+html {
+  /* Stops iOS bumping type up a step when a phone is turned sideways. */
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   background-color: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* Kit content is other people's text: URLs, ids, company names with no spaces in
+     them. On a phone one long token is enough to push a card past the viewport and
+     give the whole page a sideways scroll, so break anything that cannot fit. */
+  overflow-wrap: break-word;
 }
 
 /* The splash caret. Two blinks, then it stops — it is punctuation, not a spinner. */

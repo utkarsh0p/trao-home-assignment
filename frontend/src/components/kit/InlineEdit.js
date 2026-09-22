@@ -77,7 +77,7 @@ export default function InlineEdit({
                     focus-visible:ring-offset-2 ${className}`}
       >
         <span
-          className={`whitespace-pre-wrap ${textClassName} ${
+          className={`block whitespace-pre-wrap break-words ${textClassName} ${
             value ? "" : "text-ink/35 italic"
           }`}
         >
@@ -113,9 +113,12 @@ export default function InlineEdit({
           event.currentTarget.blur();
         }
       }}
+      // textClassName carries the caller's type size, which is 15px in places. `max-sm:`
+      // sorts after plain utilities in the generated CSS, so this raises the small ones to
+      // 16px on phones — below that iOS zooms on focus — without touching desktop.
       className={`w-full resize-y rounded-lg border border-accent/40 bg-paper px-2 py-1.5
                   text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30
-                  ${textClassName} ${className}`}
+                  ${textClassName} ${className} max-sm:text-base`}
     />
   );
 }

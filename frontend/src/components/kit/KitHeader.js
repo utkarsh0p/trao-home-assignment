@@ -22,11 +22,11 @@ export default function KitHeader({ kit }) {
           &larr; My kits
         </Link>
 
-        <div className="mt-4 flex flex-wrap items-end justify-between gap-6">
+        <div className="mt-4 flex flex-col items-start gap-6 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <div className="min-w-0">
             {/* Titles are set once at generation and there is no rename endpoint, so
                 this is text rather than an editable field. */}
-            <h1 className="text-[32px] font-semibold leading-[1.05] tracking-[-0.045em] text-ink sm:text-[44px]">
+            <h1 className="text-[28px] font-semibold leading-[1.08] tracking-[-0.04em] text-ink min-[390px]:text-[32px] sm:text-[44px] sm:leading-[1.05] sm:tracking-[-0.045em]">
               {kit.source?.role || kit.title || "Untitled kit"}
             </h1>
 
@@ -36,9 +36,10 @@ export default function KitHeader({ kit }) {
                   href={kit.source.company_url}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="rounded-lg text-[15px] font-semibold text-accent transition-colors
-                             duration-200 hover:text-accent-dark focus-visible:outline-none
-                             focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                  className="max-w-full break-words rounded-lg text-[15px] font-semibold text-accent
+                             transition-colors duration-200 hover:text-accent-dark
+                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
+                             focus-visible:ring-offset-2"
                 >
                   {kit.source.company || kit.source.company_url} &nearr;
                 </a>
@@ -116,8 +117,9 @@ function ExportButton({ kit }) {
       type="button"
       onClick={download}
       disabled={state === "working"}
-      className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-ink/20
-                 bg-white/60 px-5 py-2.5 text-sm font-semibold text-ink transition-colors duration-200
+      className="inline-flex w-full shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl
+                 border border-ink/20 bg-white/60 px-5 py-2.5 text-sm font-semibold text-ink
+                 transition-colors duration-200 sm:w-auto
                  hover:border-ink/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2
                  focus-visible:ring-accent focus-visible:ring-offset-2 disabled:pointer-events-none
                  disabled:opacity-50"

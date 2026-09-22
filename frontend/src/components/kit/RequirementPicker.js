@@ -17,7 +17,7 @@ export default function RequirementPicker({ requirements, selected, onChange, la
   }
 
   return (
-    <div className="relative">
+    <div className="relative w-full sm:w-auto">
       <div className="flex flex-wrap items-center gap-1.5">
         {(selected ?? []).map((id) => {
           const requirement = requirements.find((r) => r.id === id);
@@ -47,7 +47,13 @@ export default function RequirementPicker({ requirements, selected, onChange, la
       </div>
 
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-2 w-[min(420px,80vw)] rounded-xl border border-ink/10 bg-surface p-2 shadow-float">
+        /* Below sm it is a plain block that pushes the card open, not a floating panel:
+           absolutely positioned at a phone's width it hung off the right edge of the
+           screen and took the whole page's horizontal scroll with it. */
+        <div
+          className="relative z-30 mt-2 w-full rounded-xl border border-ink/10 bg-surface p-2
+                     shadow-float sm:absolute sm:left-0 sm:top-full sm:w-[min(420px,80vw)]"
+        >
           <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink/50">
             {label}
           </p>

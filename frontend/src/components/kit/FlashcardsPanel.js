@@ -100,16 +100,18 @@ export default function FlashcardsPanel({ kit, mutate, refetch }) {
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ink/10 pt-4">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink/50">
-                  Covers
-                </span>
-                <RequirementPicker
-                  label={`Requirements covered by ${card.id}`}
-                  requirements={requirements}
-                  selected={card.requirement_ids}
-                  onChange={(requirement_ids) => patch(card, { requirement_ids })}
-                />
-                <span className="ml-auto text-xs font-medium text-ink/35">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink/50">
+                    Covers
+                  </span>
+                  <RequirementPicker
+                    label={`Requirements covered by ${card.id}`}
+                    requirements={requirements}
+                    selected={card.requirement_ids}
+                    onChange={(requirement_ids) => patch(card, { requirement_ids })}
+                  />
+                </div>
+                <span className="text-xs font-medium text-ink/35 sm:ml-auto">
                   {replaceabilityHint(card)}
                 </span>
               </div>
@@ -166,7 +168,7 @@ function AddFlashcard({ kit, mutate }) {
             rows={3}
             autoFocus
             className="w-full resize-y rounded-xl border border-ink/[0.07] bg-paper px-3.5 py-2.5
-                       text-[15px] text-ink focus:border-accent/40 focus:outline-none
+                       text-base text-ink focus:border-accent/40 focus:outline-none sm:text-[15px]
                        focus-visible:ring-2 focus-visible:ring-accent/30"
           />
         </div>
@@ -180,7 +182,7 @@ function AddFlashcard({ kit, mutate }) {
             onChange={(event) => setBack(event.target.value)}
             rows={3}
             className="w-full resize-y rounded-xl border border-ink/[0.07] bg-paper px-3.5 py-2.5
-                       text-[15px] text-ink focus:border-accent/40 focus:outline-none
+                       text-base text-ink focus:border-accent/40 focus:outline-none sm:text-[15px]
                        focus-visible:ring-2 focus-visible:ring-accent/30"
           />
         </div>

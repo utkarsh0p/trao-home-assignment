@@ -90,7 +90,7 @@ function KitLibrary() {
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Filter by company or role"
-                  className="h-11 w-full rounded-xl border border-ink/[0.07] bg-paper px-3.5 text-[15px]
+                  className="h-11 w-full rounded-xl border border-ink/[0.07] bg-paper px-3.5 text-base sm:text-[15px]
                              text-ink placeholder:text-ink/35 transition-[border-color,box-shadow]
                              duration-200 focus:border-accent/40 focus:outline-none
                              focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-64"
