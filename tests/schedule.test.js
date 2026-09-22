@@ -83,14 +83,49 @@ test('a one-day request puts everything on day one', () => {
   assert.equal(schedule.days[0].question_ids.length, questions.length);
 });
 
-test('more days than material produces review days, never empty ones', () => {
+test('more days than material becomes spaced review, not daily busywork', () => {
   const schedule = buildSchedule({ requirements, questions, days: 12 });
 
   assert.equal(schedule.days.length, 12);
   for (const day of schedule.days) {
     assert.ok(day.focus.length > 0, `day ${day.day} has no focus`);
-    assert.ok(day.question_ids.length > 0, `day ${day.day} is empty`);
   }
+
+  // Teaching first, then sessions at widening gaps rather than one every single day.
+  const sessionDays = schedule.days.filter((day) => day.question_ids.length > 0);
+  assert.ok(sessionDays.length < 12, 'a 12-day plan for 5 questions should leave rest days');
+  assert.ok(sessionDays.length >= questions.length, 'every question still gets taught');
+
+  // The day before the interview is always a run-through.
+  const lastDay = schedule.days.at(-1);
+  assert.equal(lastDay.focus, 'Final run-through');
+  assert.equal(lastDay.question_ids.length, questions.length, 'the final sweep covers everything');
+
+  // Rest days are explicit and honest, never a half-hour of invented filler.
+  for (const day of schedule.days.filter((d) => d.question_ids.length === 0)) {
+    assert.equal(day.minutes, 0, `rest day ${day.day} should claim no time`);
+    assert.match(day.focus, /rest/i);
+  }
+});
+
+test('a long runway still revisits every question and never drills daily', () => {
+  const schedule = buildSchedule({ requirements, questions, days: 60 });
+
+  assert.equal(schedule.days.length, 60);
+
+  const scheduled = new Set(schedule.days.flatMap((day) => day.question_ids));
+  for (const question of questions) {
+    assert.ok(scheduled.has(question.id), `${question.id} never appears in a 60-day plan`);
+  }
+
+  const sessionDays = schedule.days.filter((day) => day.question_ids.length > 0);
+  assert.ok(sessionDays.length <= 15, `60 days produced ${sessionDays.length} sessions — too dense`);
+
+  // Gaps between review sessions must widen, which is the whole point of the schedule.
+  const reviewStarts = sessionDays.map((day) => day.day).slice(questions.length);
+  const gaps = reviewStarts.slice(1).map((day, i) => day - reviewStarts[i]);
+  assert.ok(gaps.length > 2, 'expected several review sessions');
+  assert.ok(gaps.at(-1) > gaps[0], `gaps should widen, got ${JSON.stringify(gaps)}`);
 });
 
 test('every day has a focus even with no questions at all', () => {

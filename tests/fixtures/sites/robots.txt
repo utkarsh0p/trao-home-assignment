@@ -1,0 +1,3 @@
+# Fixture policy. Proves the crawler reads and honours this file before fetching.
+User-agent: *
+Disallow: /acme/internal/

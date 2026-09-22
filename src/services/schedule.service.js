@@ -12,7 +12,20 @@ import { AppError } from '../middleware/errorHandler.js';
  */
 
 const MINUTES_PER_QUESTION = 15;
-const REVIEW_MINUTES = 30;
+const REVIEW_MINUTES_PER_QUESTION = 10;
+const MIN_REVIEW_MINUTES = 30;
+
+/**
+ * Widening gaps after the teaching days end, in the spirit of spaced repetition: recall
+ * is strengthened by being tested just as it starts to fade, not by being drilled daily.
+ *
+ * This matters because "60 days until the interview" with five questions of material is a
+ * real input the brief names. Filling all 55 remaining days with identical half-hour
+ * reviews technically allocates the time, but it is not a plan anyone would follow.
+ */
+const REVIEW_INTERVALS = [1, 3, 7, 14, 21, 30];
+/** Once the widening gaps run out, keep a steady fortnightly touch so nothing rots. */
+const REVIEW_CADENCE = 14;
 
 const CATEGORY_FOCUS = {
   technical: 'Technical depth',
@@ -51,6 +64,43 @@ function bucketSizes(total, buckets) {
   return Array.from({ length: buckets }, (_, i) => base + (i < remainder ? 1 : 0));
 }
 
+/**
+ * Which of the days after teaching ends carry a review session.
+ *
+ * Always includes the final day: whatever else the plan does, the day before the
+ * interview is a run-through.
+ */
+function reviewDayNumbers(teachingDays, days) {
+  const chosen = new Set();
+  let lastGap = 0;
+
+  for (const gap of REVIEW_INTERVALS) {
+    const day = teachingDays + gap;
+    if (day > days) break;
+    chosen.add(day);
+    lastGap = gap;
+  }
+
+  for (let day = teachingDays + lastGap + REVIEW_CADENCE; day <= days; day += REVIEW_CADENCE) {
+    chosen.add(day);
+  }
+
+  if (days > teachingDays) chosen.add(days);
+
+  return [...chosen].sort((a, b) => a - b);
+}
+
+/**
+ * How much material a given review session covers. Early sessions revisit only the
+ * hardest few while it is still fresh; later ones sweep everything.
+ */
+function reviewSlice(ranked, sessionIndex) {
+  if (ranked.length <= 2) return ranked;
+  if (sessionIndex === 0) return ranked.slice(0, 2);
+  if (sessionIndex === 1) return ranked.slice(0, Math.ceil(ranked.length / 2));
+  return ranked;
+}
+
 function focusFor(dayQuestions) {
   if (dayQuestions.length === 0) return 'Review and consolidation';
 
@@ -80,17 +130,24 @@ export function buildSchedule({ requirements = [], questions = [], days }) {
   const teachingDays = Math.min(days, ranked.length);
   const sizes = teachingDays > 0 ? bucketSizes(ranked.length, teachingDays) : [];
 
+  // Which later days get a review session, and what each one covers.
+  const reviewDays = ranked.length > 0 ? reviewDayNumbers(teachingDays, days) : [];
+  const reviewPlan = new Map(
+    reviewDays.map((day, index) => [day, reviewSlice(ranked, index)]),
+  );
+
   const dayEntries = [];
   let cursor = 0;
 
   for (let i = 0; i < days; i += 1) {
+    const dayNumber = i + 1;
     const size = sizes[i] ?? 0;
     const dayQuestions = ranked.slice(cursor, cursor + size);
     cursor += size;
 
     if (dayQuestions.length > 0) {
       dayEntries.push({
-        day: i + 1,
+        day: dayNumber,
         focus: focusFor(dayQuestions),
         question_ids: dayQuestions.map((q) => q.id),
         minutes: dayQuestions.length * MINUTES_PER_QUESTION,
@@ -98,14 +155,28 @@ export function buildSchedule({ requirements = [], questions = [], days }) {
       continue;
     }
 
-    // Review day: cycle back through the ranked list so the time is used and the
-    // hardest material gets seen more than once.
-    const revisit = ranked.length > 0 ? [ranked[(i - teachingDays) % ranked.length].id] : [];
+    const session = reviewPlan.get(dayNumber);
+
+    if (session) {
+      dayEntries.push({
+        day: dayNumber,
+        focus: dayNumber === days ? 'Final run-through' : `Spaced review — ${focusFor(session)}`,
+        question_ids: session.map((q) => q.id),
+        minutes: Math.max(MIN_REVIEW_MINUTES, session.length * REVIEW_MINUTES_PER_QUESTION),
+      });
+      continue;
+    }
+
+    // A deliberate gap between review sessions, not an oversight. Saying "rest" plainly
+    // is more useful than inventing a half-hour of busywork to fill the row.
     dayEntries.push({
-      day: i + 1,
-      focus: revisit.length > 0 ? 'Review and consolidation' : 'No material extracted to study',
-      question_ids: revisit,
-      minutes: revisit.length > 0 ? REVIEW_MINUTES : 0,
+      day: dayNumber,
+      focus:
+        ranked.length > 0
+          ? 'Rest day — no scheduled material'
+          : 'No material extracted to study',
+      question_ids: [],
+      minutes: 0,
     });
   }
 

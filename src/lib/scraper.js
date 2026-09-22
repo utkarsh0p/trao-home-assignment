@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 
 import { readCache, writeCache } from '../models/FetchCache.js';
+import { isAllowedByRobots } from './robots.js';
 import {
   ALLOWED_CONTENT_TYPES,
   MAX_PAGE_BYTES,
@@ -136,6 +137,13 @@ export async function fetchPage(input, { useCache = true } = {}) {
   if (useCache) {
     const cached = await readCache(key);
     if (cached) return { ...cached, via: 'cache' };
+  }
+
+  // Checked before the request, not after: the point of robots.txt is not to send it.
+  if (!(await isAllowedByRobots(url))) {
+    const error = new Error(`robots.txt disallows ${url.pathname}`);
+    error.code = 'ROBOTS_DISALLOWED';
+    throw error;
   }
 
   const html = await fetchHtml(url.href);
