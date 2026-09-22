@@ -1,1 +1,29 @@
+# dependencies
+node_modules/
+frontend/node_modules/
+
+# env
+.env
+.env.local
+frontend/.env.local
+
+# next.js
+frontend/.next/
+frontend/out/
+
+# build / runtime artefacts
+dist/
+*.log
+npm-debug.log*
+
+# batch output
+kits.json
+
+# editor / os
+.DS_Store
+.vscode/
+.idea/
+
+# claude code local settings (the .claude docs ARE tracked)
+.claude/settings.local.json
 .claude
