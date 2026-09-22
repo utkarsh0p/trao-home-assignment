@@ -1,26 +1,48 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Design tokens — the single source of truth is .claude/style.md.
+   Tailwind v4 has no config file; these ARE the theme. Light only, no dark: variants. */
+@theme {
+  --color-paper:       #F7F7F3;
+  --color-surface:     #FFFFFF;
+  --color-ink:         #121316;
+  --color-accent:      #2D52EB;
+  --color-accent-dark: #2143CF;
+  --color-line:        #E7E7E1;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-sky:      #DCE9FF;
+  --color-mint:     #DEF2E7;
+  --color-lavender: #E9E4FF;
+  --color-sand:     #FCEFD8;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-dm-sans), Inter, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --shadow-soft:   0 10px 30px -16px rgb(18 19 22 / 0.7);
+  --shadow-accent: 0 10px 30px -14px rgb(45 82 235 / 0.85);
+  --shadow-lifted: 0 18px 50px -30px rgb(18 19 22 / 0.35);
+  --shadow-float:  0 30px 70px -20px rgb(18 19 22 / 0.5);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The splash caret. Two blinks, then it stops — it is punctuation, not a spinner. */
+@keyframes caret-blink {
+  0%, 45%   { opacity: 1; }
+  50%, 95%  { opacity: 0; }
+  100%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
