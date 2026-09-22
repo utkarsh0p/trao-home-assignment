@@ -33,7 +33,8 @@ export const env = {
 
   googleApiKey: process.env.GOOGLE_API_KEY ?? '',
   geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.6-flash',
-  // Max in-flight model calls. Whoever runs the batch may be on a free key, and the
-  // brief scores handling being told to slow down.
-  llmMaxConcurrency: Number(process.env.LLM_MAX_CONCURRENCY ?? 5),
+  // Max in-flight model calls, and only a ceiling: repeated 429s narrow it to 1 for the
+  // rest of the run (src/lib/llm.js). The default is chosen for a free key, since that
+  // is what whoever runs the batch will have.
+  llmMaxConcurrency: Number(process.env.LLM_MAX_CONCURRENCY ?? 3),
 };

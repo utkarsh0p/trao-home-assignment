@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Platform — Acme Logistics</title>
+<h1>The Acme platform</h1>
+<p>
+  The platform has three parts. Ingest takes carrier EDI, telematics and terminal feeds and
+  normalises them. The timeline service reconciles conflicting events into one ordered history per
+  shipment, which is harder than it sounds when a carrier reports a delivery two hours before the
+  GPS trace says the truck arrived. Alerting scores each shipment for risk of missing its window.
+</p>
+<p>
+  It runs on Postgres and Kafka, with the ingest workers in Go and the timeline and alerting
+  services in Node.js. We deploy to Kubernetes several times a day.
+</p>
+<p><a href="index.html">Back to home</a></p>

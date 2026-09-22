@@ -11,6 +11,7 @@
     "dev": "nodemon --watch src --ignore frontend src/server.js",
     "start": "node src/server.js",
     "test": "node --test \"tests/**/*.test.js\"",
+    "fixtures": "node tests/fixtures/serve.js",
     "evaluate": "node src/cli/evaluate.js"
   },
   "license": "MIT",

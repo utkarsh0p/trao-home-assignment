@@ -6,7 +6,12 @@ import { clampText, dataBlock, generateStructured, isLlmConfigured } from '../li
 import { crawlSite, expandHub } from '../lib/crawler.js';
 import { fetchPage } from '../lib/scraper.js';
 import { searchPublicDiscussion } from '../lib/search.js';
-import { assertFetchable, coerceCompanyUrl } from '../lib/urlGuard.js';
+import {
+  assertFetchable,
+  canonicalKey,
+  coerceCompanyUrl,
+  companyNameFromUrl,
+} from '../lib/urlGuard.js';
 import { QUESTION_CATEGORIES } from '../lib/kitSchema.js';
 import { validateKit } from '../lib/kitSchema.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -32,24 +37,41 @@ const asError = (step, error) => ({
 
 /* ---------------------------------------------------------------------- prepare */
 
-function companyNameFromUrl(url) {
-  const host = url.hostname.replace(/^www\./i, '');
-  const label = host.split('.')[0] ?? host;
-  return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
 /**
- * Deterministic. The only research-phase node allowed to fail the run: if we cannot
- * even parse the company URL there is nothing to research.
+ * Deterministic. Establishes what we know before any source is touched.
+ *
+ * A company URL we cannot use is a missing source, not a failed run: we still hold a
+ * job description, and a kit built from it alone is a real kit with an honest gap in it
+ * (prd §3.2, §3.10 — "reserve failed for a case you could not produce a kit for at
+ * all"). The single exception is a refusal to fetch a private address, which is a
+ * security decision and stays fatal.
  */
 export async function prepare(state) {
   const { jd = '', companyUrl = '', days = 1 } = state.input ?? {};
 
-  const url = coerceCompanyUrl(companyUrl);
-  await assertFetchable(url);
-
   const jdChars = jd.trim().length;
   const notes = [];
+  const errors = [];
+
+  let company = { name: '', normalizedUrl: '', origin: '', jdChars };
+
+  try {
+    const url = coerceCompanyUrl(companyUrl);
+    await assertFetchable(url);
+    company = {
+      name: companyNameFromUrl(url),
+      normalizedUrl: url.href,
+      origin: url.origin,
+      jdChars,
+    };
+  } catch (error) {
+    if (error.code === 'URL_BLOCKED') throw error;
+
+    errors.push(asError('prepare', error));
+    notes.push(
+      'No usable company website was given, so this kit is built from the job description alone and contains no company research.',
+    );
+  }
 
   // A thin description yields a thin kit that says so — it is not an error, and
   // inventing requirements to pad it would be worse than reporting the shortage.
@@ -59,15 +81,7 @@ export async function prepare(state) {
     );
   }
 
-  return {
-    company: {
-      name: companyNameFromUrl(url),
-      normalizedUrl: url.href,
-      origin: url.origin,
-      jdChars,
-    },
-    notes,
-  };
+  return { company, notes, errors };
 }
 
 /* ----------------------------------------------------- extract_requirements (LLM) */
@@ -145,6 +159,8 @@ export async function extractRequirements(state) {
 /* ------------------------------------------------------------- crawl_site (IO) */
 
 export async function crawlSiteNode(state) {
+  if (!state.company?.normalizedUrl) return {};
+
   try {
     const { seedPage, candidates } = await crawlSite(state.company.normalizedUrl);
     return {
@@ -263,8 +279,14 @@ export async function fetchPages(state) {
     };
   }
 
-  const already = new Set((state.pagesFetched ?? []).map((page) => page.url));
-  const targets = ranked.filter((page) => !already.has(page.url));
+  // Compared canonically: the homepage we already hold as `/` is the same document the
+  // site links to as `/index.html`, and fetching it twice wastes a request and puts the
+  // same page in pages_used twice.
+  const already = new Set((state.pagesFetched ?? []).map((page) => canonicalKey(page.url)));
+  const targets = ranked.filter((page) => {
+    const key = canonicalKey(page.url);
+    return already.has(key) ? false : already.add(key);
+  });
 
   // allSettled, not all: one dead link must not lose the pages that did resolve.
   const settled = await Promise.allSettled(targets.map((page) => fetchPage(page.url)));
@@ -287,12 +309,15 @@ export async function fetchPages(state) {
 /* -------------------------------------------------------- search_discussion (IO) */
 
 export async function searchDiscussion(state) {
+  const name = state.company?.name;
+  if (!name) return { research: { publicDiscussion: null } };
+
   try {
-    const { results } = await searchPublicDiscussion(state.company?.name);
+    const { results } = await searchPublicDiscussion(name);
     if (results.length === 0) {
       return {
         research: { publicDiscussion: null },
-        notes: [`No public discussion of ${state.company?.name}’s interview process was found.`],
+        notes: [`No public discussion of ${name}’s interview process was found.`],
       };
     }
     return { research: { publicDiscussionHits: results } };
@@ -361,6 +386,9 @@ export function awaitResearch() {
 /* -------------------------------------------------- synthesize_research (LLM) */
 
 const synthesisSchema = z.object({
+  // The name the company calls itself, which the URL often cannot tell us — the batch
+  // command serves company sites from paths like http://localhost:8099/acme/.
+  company_name: z.string().describe('The company name as the pages state it. Empty string if unclear'),
   summary: z.string(),
   what_they_do: z.string(),
   // Empty string, not null — see the note on bestHubUrl. found_hiring_information is
@@ -414,6 +442,7 @@ export async function synthesizeResearch(state) {
 
     return {
       research: {
+        companyName: result.company_name?.trim() || null,
         companyBrief: {
           summary: result.summary,
           what_they_do: result.what_they_do,
@@ -737,6 +766,15 @@ export function buildScheduleNode(state) {
 
 /* --------------------------------------------------- validate_kit (deterministic) */
 
+/** Keeps the first spelling of each page, so provenance reads as the crawler saw it. */
+function dedupeByCanonicalUrl(urls) {
+  const seen = new Set();
+  return urls.filter((url) => {
+    const key = canonicalKey(url);
+    return seen.has(key) ? false : seen.add(key);
+  });
+}
+
 function assembleKit(state) {
   const role = state.research?.role ?? {};
   const brief = state.research?.companyBrief ?? { summary: '', what_they_do: '', sources: [] };
@@ -744,13 +782,14 @@ function assembleKit(state) {
 
   return {
     source: {
-      company: state.company?.name ?? '',
+      // What the pages call the company beats what the URL suggested.
+      company: state.research?.companyName || state.company?.name || '',
       company_url: state.company?.normalizedUrl ?? '',
       role: role.title ?? '',
       location: role.location ?? '',
       jd_chars: state.company?.jdChars ?? 0,
       researched_at: new Date().toISOString(),
-      pages_used: (state.pagesFetched ?? []).map((page) => page.url),
+      pages_used: dedupeByCanonicalUrl((state.pagesFetched ?? []).map((page) => page.url)),
     },
     company_brief: {
       summary: brief.summary ?? '',
@@ -772,6 +811,7 @@ function assembleKit(state) {
       difficulty,
     })),
     flashcards: state.flashcards ?? [],
+    notes: state.notes ?? [],
     schedule: state.schedule ?? { days_available: state.input?.days ?? 1, days: [] },
     coverage: toCoverageField(state.coverage),
   };

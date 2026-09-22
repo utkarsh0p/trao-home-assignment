@@ -78,6 +78,17 @@ export const coverageSchema = z.object({
 });
 
 const baseKitSchema = z.object({
+  /**
+   * An addition to Appendix A, which permits extension but not renaming.
+   *
+   * This is where "a thin JD produces a thin kit that says so" actually lives: an
+   * unreachable site, a company with no hiring page, a description too short to extract
+   * much from. The brief asks for those gaps to be recorded honestly *in the kit*, and
+   * without this field the only record of them is a log line nobody reads. Optional, so
+   * kits written before it existed still validate.
+   */
+  notes: z.array(z.string()).default([]),
+
   source: sourceSchema,
   company_brief: companyBriefSchema,
   role: roleSchema,

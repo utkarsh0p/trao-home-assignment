@@ -23,8 +23,24 @@ const fetchCacheSchema = new mongoose.Schema(
 
 export const FetchCache = mongoose.model('FetchCache', fetchCacheSchema);
 
+/**
+ * True only when a query can actually reach the server.
+ *
+ * Without this, a cache call made with no live connection does not fail — mongoose
+ * *buffers* it and rejects 10 seconds later. Measured: 10,010ms, every call. Across a
+ * five-case batch that is minutes of pure waiting against a fifteen-minute budget, and
+ * `npm run evaluate` is expected to run with no MONGODB_URI at all. Checking readyState
+ * also covers the case a global `bufferCommands` flag cannot: a connection that opened
+ * and then dropped mid-run.
+ */
+function isConnected() {
+  return mongoose.connection.readyState === 1;
+}
+
 /** Cache reads and writes never fail a run — a cache miss is always survivable. */
 export async function readCache(key) {
+  if (!isConnected()) return null;
+
   try {
     const hit = await FetchCache.findOne({ key }).lean();
     return hit ? hit.payload : null;
@@ -34,6 +50,8 @@ export async function readCache(key) {
 }
 
 export async function writeCache(key, kind, payload) {
+  if (!isConnected()) return;
+
   try {
     await FetchCache.updateOne(
       { key },

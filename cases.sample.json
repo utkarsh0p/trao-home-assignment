@@ -1,0 +1,32 @@
+[
+  {
+    "id": "case-01",
+    "jd": "Senior Backend Engineer — Freight Data Platform\n\nAcme Logistics is hiring a senior backend engineer to work on the systems that turn millions of raw carrier events a day into a single reliable shipment timeline.\n\nWhat you'll do:\n- Own the event ingestion pipeline that consumes carrier EDI, GPS telematics and terminal feeds\n- Design and build services that reconcile duplicate, late and contradictory events into an ordered history\n- Improve the alerting engine that scores shipments for delivery risk\n- Mentor two junior engineers on the platform team and take part in design review\n\nRequirements:\n- 5+ years building backend services in production, with at least 2 years in Node.js\n- Strong SQL and hands-on experience operating PostgreSQL at scale\n- Experience with an event streaming system such as Kafka, including ordering and idempotency concerns\n- You have designed distributed systems that tolerate unreliable third-party data sources\n- Comfortable owning services in production: on-call, monitoring, incident follow-up\n- Clear written communication — we are a documentation-first team\n\nNice to have:\n- Experience in logistics, supply chain or another domain with messy real-world data\n- Go, which we use for the ingest workers\n- Kubernetes operational experience\n\nLocation: Rotterdam or remote within CET ±3.",
+    "company_url": "http://localhost:8099/acme/",
+    "days": 5
+  },
+  {
+    "id": "case-02",
+    "jd": "Backend Engineer. Must know Python.",
+    "company_url": "http://localhost:8099/acme/",
+    "days": 3
+  },
+  {
+    "id": "case-03",
+    "jd": "Embedded Signal Processing Engineer\n\nQuietCo is looking for an embedded engineer to work on the signal processing chain that turns raw acoustic traces from our sensors into the feature set our analysis software consumes.\n\nRequirements:\n- 3+ years of embedded C or C++ on ARM Cortex-M class hardware\n- Solid grounding in digital signal processing: filtering, FFT, windowing\n- Experience working with real sensor data and its noise characteristics\n- Able to work directly with mechanical and acoustic engineers\n\nBonus points for:\n- Experience with vibration analysis or condition monitoring\n- Rust on embedded targets\n\nBased in Stuttgart, on-site three days a week.",
+    "company_url": "http://localhost:8099/quietco/",
+    "days": 7
+  },
+  {
+    "id": "case-04",
+    "jd": "Full-Stack Engineer\n\nWe need a full-stack engineer comfortable across a React frontend and a Node.js API.\n\nRequirements:\n- 4+ years with React, including hooks and modern state management\n- Experience designing and consuming REST APIs\n- Familiarity with relational databases and schema migration\n- Experience mentoring junior engineers\n\nNice to have:\n- TypeScript\n- Any exposure to CI/CD pipelines",
+    "company_url": "http://localhost:8099/doesnotexist/",
+    "days": 1
+  },
+  {
+    "id": "case-05",
+    "jd": "Data Engineer\n\nJoin our data team.\n\nRequired: SQL, Python, and experience with a workflow orchestrator such as Airflow.",
+    "company_url": "http://localhost:8099/quietco/",
+    "days": 60
+  }
+]

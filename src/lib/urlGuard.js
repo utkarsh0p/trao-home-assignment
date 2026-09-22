@@ -84,6 +84,23 @@ export async function assertFetchable(url) {
   return target;
 }
 
+/**
+ * A key that collapses the spellings of one page into one string.
+ *
+ * `/about/` and `/about/index.html` are the same document by long-standing web
+ * convention, and a site that links to itself both ways — as most do — would otherwise
+ * be fetched twice and reported twice in `pages_used`.
+ */
+export function canonicalKey(input) {
+  try {
+    const url = input instanceof URL ? input : new URL(input);
+    const path = url.pathname.replace(/\/index\.html?$/i, '/').replace(/\/+$/, '');
+    return `${url.origin}${path}${url.search}`;
+  } catch {
+    return String(input);
+  }
+}
+
 /** True when `candidate` belongs to the same site we were pointed at. */
 export function isSameOrigin(candidate, origin) {
   try {
@@ -104,6 +121,43 @@ export function looksLikePage(href) {
     return false;
   }
   return !ASSET_EXTENSIONS.test(href);
+}
+
+/**
+ * A hostname that tells us nothing about who the company is: a bare IP, localhost, or
+ * a single-label host. The batch command is documented to serve company sites from a
+ * local address, so this is the common case there, not an edge case.
+ */
+function isUninformativeHost(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (net.isIP(host)) return true;
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  return !host.includes('.');
+}
+
+/**
+ * A first guess at the company's name, from the URL alone.
+ *
+ * Needed before anything has been fetched, because the public-discussion search runs in
+ * parallel with the crawl. On a normal host the domain label is a good guess; on
+ * `http://localhost:8099/acme/` the host is worthless and the first path segment is the
+ * only thing identifying the company — without this every locally-served case would be
+ * called "Localhost" and we would search the web for how Localhost interviews.
+ *
+ * Returns an empty string when the URL genuinely carries no name, which callers treat
+ * as "unknown" rather than inventing one.
+ */
+export function companyNameFromUrl(url) {
+  const target = url instanceof URL ? url : normalizeUrl(url);
+
+  const label = isUninformativeHost(target.hostname)
+    ? (target.pathname.split('/').filter(Boolean)[0] ?? '')
+    : target.hostname.replace(/^www\./i, '').split('.')[0];
+
+  const cleaned = decodeURIComponent(label).replace(/[-_+]+/g, ' ').trim();
+  if (!cleaned || /\.[a-z0-9]+$/i.test(cleaned)) return '';
+
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 /**

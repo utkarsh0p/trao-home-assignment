@@ -166,6 +166,7 @@ KitSchema.methods.toAppendixA = function toAppendixA() {
     .map(({ id, front, back, requirement_ids }) => ({ id, front, back, requirement_ids }));
 
   return {
+    notes: kit.notes ?? [],
     source: {
       company: kit.source.company,
       company_url: kit.source.company_url,
