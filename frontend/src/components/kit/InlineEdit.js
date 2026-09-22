@@ -19,9 +19,12 @@ export default function InlineEdit({
   multiline = true,
   className = "",
   textClassName = "",
+  // Opens straight into the editor. For the one place the user has already said "edit
+  // this" — the practice card — where a second click on the text would be busywork.
+  autoEdit = false,
 }) {
   const [draft, setDraft] = useState(value ?? "");
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(autoEdit);
   const [saving, setSaving] = useState(false);
   const ref = useRef(null);
   const committed = useRef(value ?? "");

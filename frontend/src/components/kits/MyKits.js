@@ -6,6 +6,7 @@ import EmptyState from "@/components/EmptyState";
 import ErrorCallout from "@/components/ErrorCallout";
 import KitCard from "@/components/KitCard";
 import { KitCardSkeletonGrid } from "@/components/KitCardSkeleton";
+import NewKitCard from "@/components/NewKitCard";
 import RequireAuth from "@/components/RequireAuth";
 import { deleteKit, listKits } from "@/lib/api";
 
@@ -78,29 +79,26 @@ function KitLibrary() {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
-            {kits && kits.length > 1 && (
-              <>
-                <label htmlFor="kit-filter" className="sr-only">
-                  Filter kits by company or role
-                </label>
-                <input
-                  id="kit-filter"
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Filter by company or role"
-                  className="h-11 w-full rounded-xl border border-ink/[0.07] bg-paper px-3.5 text-base sm:text-[15px]
-                             text-ink placeholder:text-ink/35 transition-[border-color,box-shadow]
-                             duration-200 focus:border-accent/40 focus:outline-none
-                             focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-64"
-                />
-              </>
-            )}
-            <Button href="/new" variant="dark" size="sm" className="shrink-0">
-              New kit
-            </Button>
-          </div>
+          {/* No New kit button here: the nav carries one on every page, and the grid ends
+              with a ghost card. Two of them on one screen said the same thing twice. */}
+          {kits && kits.length > 1 && (
+            <div className="flex items-center gap-3">
+              <label htmlFor="kit-filter" className="sr-only">
+                Filter kits by company or role
+              </label>
+              <input
+                id="kit-filter"
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Filter by company or role"
+                className="h-11 w-full rounded-xl border border-ink/[0.07] bg-paper px-3.5 text-base sm:text-[15px]
+                           text-ink placeholder:text-ink/35 transition-[border-color,box-shadow]
+                           duration-200 focus:border-accent/40 focus:outline-none
+                           focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-64"
+              />
+            </div>
+          )}
         </div>
 
         {deleteError && (
@@ -125,7 +123,7 @@ function KitLibrary() {
                 </Button>
               }
             >
-              Paste a job description and a company website and primer. will do the
+              Paste a job description and a company website and cember. will do the
               reading &mdash; the posting text itself, though; we never fetch it from a
               job board.
             </EmptyState>
@@ -145,6 +143,9 @@ function KitLibrary() {
               {visible.map((kit) => (
                 <KitCard key={kit._id} kit={kit} onDelete={onDelete} />
               ))}
+              {/* Only when nothing is filtered out — while filtering, the grid is an
+                  answer to a question, and a New kit tile is not part of the answer. */}
+              {!query.trim() && <NewKitCard />}
             </div>
           )}
         </div>

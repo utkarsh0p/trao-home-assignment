@@ -1,5 +1,5 @@
 import Button from "@/components/Button";
-import { CursorMark } from "@/components/Wordmark";
+import { DeckMark } from "@/components/Wordmark";
 
 export default function Hero() {
   return (
@@ -16,8 +16,8 @@ export default function Hero() {
                      bg-white/75 px-3 py-2 text-[10px] font-semibold uppercase
                      tracking-[0.08em] text-ink/60 shadow-sm backdrop-blur sm:text-xs"
         >
-          <CursorMark className="size-3.5 text-accent" />
-          Meet primer.
+          <DeckMark className="size-3.5 text-accent" />
+          Meet cember.
         </span>
 
         <h1
@@ -31,7 +31,7 @@ export default function Hero() {
 
         <p className="mt-6 max-w-[720px] text-[15px] leading-[1.55] tracking-[-0.015em] text-ink/60 sm:mt-7 sm:text-xl">
           Paste the job description, point us at the company&rsquo;s site, and say how many
-          days you have. primer. reads the posting, researches how the company actually
+          days you have. cember. reads the posting, researches how the company actually
           hires, writes a question against every requirement it found, and lays the whole
           thing out day by day.
         </p>

@@ -14,7 +14,7 @@ import { checkDays, normalizeCompanyUrl, parseFieldErrors } from "@/lib/validati
 const THIN_JD_CHARS = 200;
 
 const DAY_PRESETS = [3, 5, 7, 14];
-export const DRAFT_KEY = "primer:new-kit-draft";
+export const DRAFT_KEY = "cember:new-kit-draft";
 
 export default function SingleRoleForm() {
   const router = useRouter();
@@ -70,6 +70,10 @@ export default function SingleRoleForm() {
         companyUrl: values.companyUrl.trim(),
         days: values.days,
       });
+
+      // The run started, so the draft has done its job. Without this it outlives the
+      // submit and the next New kit opens pre-filled with the last posting.
+      sessionStorage.removeItem(DRAFT_KEY);
 
       // Dedupe can hand back a run that already finished — going to a progress screen
       // would poll a terminal job forever. Go straight to the kit.

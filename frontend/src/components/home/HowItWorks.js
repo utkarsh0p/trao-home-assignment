@@ -46,7 +46,7 @@ export default function HowItWorks() {
               title="We read the company, not just the ad."
               diagram={<ResearchDiagram />}
             >
-              primer. crawls the company&rsquo;s site looking for how they actually hire, then
+              cember. crawls the company&rsquo;s site looking for how they actually hire, then
               searches for public accounts of their process. A company that publishes a
               take-home and a system design round gets a different kit from one that says
               nothing at all.

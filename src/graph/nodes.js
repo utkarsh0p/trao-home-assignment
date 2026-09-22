@@ -576,6 +576,27 @@ function questionContext(state) {
 }
 
 /**
+ * The research a flashcard may draw on. Wider than questionContext on purpose: it keeps
+ * `brief.summary`, which is where the quotable specifics live — "founded in 2016",
+ * "about ninety people", "four million tracking events a day". Those are exactly the
+ * facts worth having at your fingertips walking in, and the narrower context dropped
+ * them, leaving the model nothing to write about except the requirement list.
+ */
+function flashcardContext(state) {
+  const brief = state.research?.companyBrief;
+  const parts = [];
+  if (brief?.summary) parts.push(`About them: ${brief.summary}`);
+  if (brief?.what_they_do) parts.push(`What they do: ${brief.what_they_do}`);
+  if (state.research?.hiringProcess) {
+    parts.push(`Their stated hiring process: ${state.research.hiringProcess}`);
+  }
+  if (state.research?.publicDiscussion?.summary) {
+    parts.push(`Unverified public discussion of their process: ${state.research.publicDiscussion.summary}`);
+  }
+  return parts.join('\n') || 'No company research was available.';
+}
+
+/**
  * One call per category, given only that category's requirement subset plus the
  * research — the four run in parallel and each mints ids under its own prefix so the
  * concurrent writes cannot collide.
@@ -645,6 +666,24 @@ const flashcardBatchSchema = z.object({
   ),
 });
 
+/**
+ * A back that hedges instead of answering. The model reaches for these when the material
+ * does not support the card it started writing; the prompt tells it to omit such a card,
+ * and this drops the ones that slip through. Cheap, deterministic, and it caught a real
+ * shipped card whose back read "The provided company research does not contain
+ * information about Python usage".
+ */
+const HEDGE = [
+  /does not (contain|specify|mention|provide|include)/i,
+  /(is|are|was|were) not (specified|mentioned|provided|stated|available|given)/i,
+  /no (information|details?|mention) (about|on|regarding|of)/i,
+  /(research|posting|description|material) does not/i,
+  /not enough (information|detail)/i,
+  /unable to determine/i,
+];
+
+const hedges = (text) => HEDGE.some((pattern) => pattern.test(text));
+
 export async function generateFlashcards(state) {
   const requirements = state.requirements ?? [];
   if (requirements.length === 0) return { flashcards: [] };
@@ -655,25 +694,53 @@ export async function generateFlashcards(state) {
     const result = await generateStructured({
       schema: flashcardBatchSchema,
       name: 'flashcards',
-      system:
-        'You write revision flashcards for interview preparation. Front is a short prompt or ' +
-        'term; back is a concise, factual answer. Cite only requirement ids from the list.',
+      system: [
+        'You write flashcards for someone preparing for one specific interview. A flashcard',
+        'tests something they must be able to RECALL in the room: a definition, a mechanism,',
+        'a trade-off, a number, or a fact about how this company works and hires.',
+        '',
+        'Never write a card whose answer restates the posting. "Front: Kubernetes Experience /',
+        'Back: The role requires Kubernetes in production" is not a flashcard — the candidate',
+        'already knows what the posting said, and reading it back teaches them nothing. Ask',
+        'what they must KNOW: "What does a failing readiness probe do to traffic routing?"',
+        '',
+        'Write two kinds of card:',
+        '  1. Company and process cards, drawn only from the research block — what they build,',
+        '     how they interview, what their take-home involves. Cite no requirement id if',
+        '     none genuinely applies; an empty list is correct and better than a wrong id.',
+        '  2. Technical recall cards. Use a listed topic only to CHOOSE the subject; the answer',
+        '     must be real knowledge about that subject, not the words of the posting.',
+        '',
+        'Do not aim for one card per topic. Cover a topic twice if it deserves it, and skip any',
+        'topic you cannot write a concrete answer for. Omit a card rather than hedging — never',
+        'write a back saying the material does not cover something. Fewer real cards is correct;',
+        'padding the deck is not.',
+      ].join('\n'),
       user: [
         `Write up to ${Math.min(12, requirements.length * 2)} flashcards.`,
         '',
-        dataBlock('REQUIREMENTS', listing, 4000),
+        dataBlock('TOPICS THE POSTING NAMES', listing, 4000),
         '',
-        dataBlock('COMPANY RESEARCH', questionContext(state), 3000),
+        dataBlock('COMPANY RESEARCH', flashcardContext(state), 3000),
       ].join('\n'),
     });
 
     const knownIds = new Set(requirements.map((r) => r.id));
-    const flashcards = result.flashcards.slice(0, 12).map((flashcard, index) => ({
-      id: `f${index + 1}`,
-      front: flashcard.front,
-      back: flashcard.back ?? '',
-      requirement_ids: (flashcard.requirement_ids ?? []).filter((id) => knownIds.has(id)),
-    }));
+
+    // Ids are minted after filtering so they stay dense.
+    const flashcards = result.flashcards
+      .filter((flashcard) => {
+        const front = flashcard.front?.trim();
+        const back = flashcard.back?.trim();
+        return front && back && !hedges(back);
+      })
+      .slice(0, 12)
+      .map((flashcard, index) => ({
+        id: `f${index + 1}`,
+        front: flashcard.front,
+        back: flashcard.back,
+        requirement_ids: (flashcard.requirement_ids ?? []).filter((id) => knownIds.has(id)),
+      }));
 
     return { flashcards };
   } catch (error) {

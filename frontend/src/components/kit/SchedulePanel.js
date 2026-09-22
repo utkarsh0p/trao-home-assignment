@@ -41,13 +41,12 @@ export default function SchedulePanel({ kit, refetch, onGoToQuestions }) {
                 <button
                   type="button"
                   onClick={onGoToQuestions}
-                  title={question.prompt}
-                  className="cursor-pointer rounded-full bg-white/70 px-2.5 py-0.5 text-[11px]
-                             font-semibold text-ink/70 transition-opacity duration-200
+                  className="max-w-[320px] cursor-pointer truncate rounded-full bg-white/70 px-3 py-1
+                             text-[11px] font-semibold text-ink/70 transition-opacity duration-200
                              hover:opacity-80 focus-visible:outline-none focus-visible:ring-2
                              focus-visible:ring-accent focus-visible:ring-offset-1"
                 >
-                  {question.id}
+                  {question.prompt}
                 </button>
               </li>
             ))}
@@ -92,9 +91,6 @@ export default function SchedulePanel({ kit, refetch, onGoToQuestions }) {
                           key={`${question.category}:${question.id}`}
                           className="flex gap-3 rounded-xl bg-paper px-3 py-2"
                         >
-                          <span className="mt-0.5 shrink-0 font-mono text-[11px] font-semibold text-ink/35">
-                            {question.id}
-                          </span>
                           <span className="min-w-0 flex-1 text-[15px] leading-[1.5] text-ink/70">
                             {question.prompt}
                           </span>
@@ -106,13 +102,6 @@ export default function SchedulePanel({ kit, refetch, onGoToQuestions }) {
                     </ul>
                   )}
 
-                  {day.danglingCount > 0 && (
-                    <p className="mt-2 text-xs font-medium text-ink/35">
-                      {day.danglingCount} scheduled question
-                      {day.danglingCount === 1 ? "" : "s"} no longer exist
-                      {day.danglingCount === 1 ? "s" : ""}.
-                    </p>
-                  )}
                 </div>
               </div>
             </li>

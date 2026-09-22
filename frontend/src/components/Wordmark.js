@@ -1,4 +1,4 @@
-// The brand, defined once: a cursor mark plus the wordmark. Header, footer and
+// The brand, defined once: a deck mark plus the wordmark. Header, footer and
 // splash all render this, so the logo can never drift between them.
 
 const SIZES = {
@@ -16,19 +16,21 @@ export default function Wordmark({ size = "sm", className = "" }) {
 
   return (
     <span className={`inline-flex items-center ${gap} ${className}`}>
-      <CursorMark className={`${mark} shrink-0 text-accent`} />
+      <DeckMark className={`${mark} shrink-0 text-accent`} />
       <span
         className={`${text} font-semibold italic leading-none tracking-[-0.04em] text-accent`}
       >
-        primer.
+        cember.
       </span>
     </span>
   );
 }
 
 /* Hand-rolled rather than pulling in an icon package — style.md §9 keeps that a
-   tech-stack decision, and the mark is one path. */
-export function CursorMark({ className = "" }) {
+   tech-stack decision, and the mark is three rectangles: a deck of prep cards.
+   The cards are separated by opacity rather than outlines, so the whole mark
+   stays one `currentColor` and survives being shrunk to 14px in the hero pill. */
+export function DeckMark({ className = "" }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -37,7 +39,9 @@ export function CursorMark({ className = "" }) {
       className={className}
       fill="currentColor"
     >
-      <path d="M4.6 2.4a1 1 0 0 1 1.05-.16l14.1 6.5a1 1 0 0 1-.06 1.84l-5.7 2.2a1 1 0 0 0-.57.57l-2.2 5.7a1 1 0 0 1-1.84.06L2.24 5.01a1 1 0 0 1 .16-1.05Z" />
+      <rect x="10" y="3" width="11.5" height="15" rx="2" opacity="0.3" />
+      <rect x="6.25" y="4.75" width="11.5" height="15" rx="2" opacity="0.55" />
+      <rect x="2.5" y="6.5" width="11.5" height="15" rx="2" />
     </svg>
   );
 }

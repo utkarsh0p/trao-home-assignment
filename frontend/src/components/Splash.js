@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Wordmark from "@/components/Wordmark";
 
-const SEEN_KEY = "primer:splash";
+const SEEN_KEY = "cember:splash";
 const WIPE_SECONDS = 0.9;
 const HOLD_SECONDS = 0.55;
 const MAX_SPLASH_MS = 2600;

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import ErrorCallout from "@/components/ErrorCallout";
 import { getJob, regenerateSection } from "@/lib/api";
-import { CATEGORY_LABELS, regenerationReport } from "@/lib/kitDerive";
+import { regenerationPreview, regenerationReport } from "@/lib/kitDerive";
 
 const POLL_MS = 1200;
 
@@ -70,13 +70,13 @@ export default function RegenerateButton({ kit, section, refetch, onRegenerated,
         )}
       </button>
 
-      {running && (
-        <p className="mt-3 text-sm font-medium text-ink/50">
-          {section === "schedule"
+      <p className="mt-2 max-w-[420px] text-sm font-medium leading-[1.5] text-ink/50">
+        {running
+          ? section === "schedule"
             ? "Recomputing the plan — this is arithmetic, not a model call."
-            : "Writing fresh content. Anything you edited, wrote or pinned is left alone."}
-        </p>
-      )}
+            : "Writing fresh content."
+          : contractLine(kit, section)}
+      </p>
 
       {state.error && (
         <div className="mt-4">
@@ -87,6 +87,42 @@ export default function RegenerateButton({ kit, section, refetch, onRegenerated,
       {state.report && <Report report={state.report} />}
     </div>
   );
+}
+
+/**
+ * What this button is about to do, said once, here — where the decision is made.
+ *
+ * The brief asks us to represent generated / edited / pinned state and explain it in the
+ * README; it does not ask for a badge on every item. Stating the real counts at the point
+ * of the press is both quieter and more useful than labelling 22 rows.
+ */
+function contractLine(kit, section) {
+  const preview = regenerationPreview(kit, section);
+
+  if (preview.single) {
+    if (section === "schedule") {
+      return "Rebuilds the days from the questions you have now.";
+    }
+    return preview.safe
+      ? `You ${preview.reason} this, so it will be left exactly as it is.`
+      : "Rewrites the brief from the pages we read.";
+  }
+
+  const noun = section === "flashcards" ? "flashcard" : "question";
+  const survivors = [
+    preview.keptEdited ? `${preview.keptEdited} you edited` : null,
+    preview.keptManual ? `${preview.keptManual} you wrote` : null,
+    preview.keptPinned ? `${preview.keptPinned} pinned` : null,
+  ].filter(Boolean);
+
+  const replaces =
+    preview.willReplace === 0
+      ? `Nothing here would be replaced.`
+      : `Rewrites ${preview.willReplace} generated ${noun}${preview.willReplace === 1 ? "" : "s"}.`;
+
+  return survivors.length
+    ? `${replaces} Keeps ${preview.kept} — ${survivors.join(", ")}.`
+    : replaces;
 }
 
 function Report({ report }) {
@@ -155,4 +191,3 @@ function pollUntilDone(jobId, timer) {
   });
 }
 
-export { CATEGORY_LABELS };

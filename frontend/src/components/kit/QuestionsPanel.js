@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Reorder } from "motion/react";
 import Button from "@/components/Button";
-import QuestionCard from "@/components/kit/QuestionCard";
+import QuestionRow from "@/components/kit/QuestionRow";
 import RegenerateButton from "@/components/kit/RegenerateButton";
 import {
   CATEGORY_LABELS,
@@ -14,7 +14,10 @@ import * as api from "@/lib/api";
 
 export default function QuestionsPanel({ kit, mutate, refetch, onNeedsSchedule }) {
   const groups = questionsByCategory(kit);
-  const requirements = kit.role?.requirements ?? [];
+
+  // One row open at a time, scoped by category because ids collide across them.
+  const [openKey, setOpenKey] = useState(null);
+  const [filter, setFilter] = useState("all");
 
   const patch = (question, body) =>
     mutate(() => api.updateQuestion(kit._id, question.id, body));
@@ -53,60 +56,109 @@ export default function QuestionsPanel({ kit, mutate, refetch, onNeedsSchedule }
   const moveCategory = (question, category) => {
     if (category === question.category) return;
     const target = [...groups[category], { ...question, category }];
+    setOpenKey(null);
     return commitOrder(target, { [question.id]: { category } });
   };
 
+  const shown =
+    filter === "all" ? QUESTION_CATEGORIES : QUESTION_CATEGORIES.filter((c) => c === filter);
+
   return (
-    <div className="flex flex-col gap-10">
-      <p className="max-w-[680px] text-[15px] leading-[1.6] text-ink/70">
-        Every question names the requirements it covers, which is what makes coverage
-        checkable rather than a matter of opinion. Edit anything in place; drag or use the
-        arrows to reorder.
-      </p>
-
-      {QUESTION_CATEGORIES.map((category) => (
-        <section key={category}>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <h2 className="text-2xl font-semibold tracking-[-0.035em] text-ink">
-              {CATEGORY_LABELS[category]}
-              <span className="ml-3 text-base font-medium text-ink/50">
-                {groups[category].length}
-              </span>
-            </h2>
-            <RegenerateButton
-              kit={kit}
-              section={category}
-              refetch={refetch}
-              label={CATEGORY_LABELS[category].toLowerCase()}
-              onRegenerated={onNeedsSchedule}
+    <div>
+      {/* Sits under the horizontal tab bar below lg; at lg that bar is gone and the
+          sidebar takes over, so this pins at the top and stays inside its column.
+          Filtering to one category is what turns four stacked sections into one screen. */}
+      <div className="sticky top-[3.25rem] z-20 -mx-5 mb-8 border-b border-ink/10 bg-paper px-5 py-3 sm:-mx-8 sm:px-8 lg:top-0 lg:mx-0 lg:px-0">
+        <div className="flex gap-2 overflow-x-auto">
+          <Chip
+            active={filter === "all"}
+            onClick={() => setFilter("all")}
+            label="All"
+            count={kit.questions?.length ?? 0}
+          />
+          {QUESTION_CATEGORIES.map((category) => (
+            <Chip
+              key={category}
+              active={filter === category}
+              onClick={() => setFilter(category)}
+              label={CATEGORY_LABELS[category]}
+              count={groups[category].length}
             />
-          </div>
+          ))}
+        </div>
+      </div>
 
-          {groups[category].length === 0 ? (
-            <div className="mt-4 rounded-2xl border border-dashed border-ink/15 p-6 text-center">
-              <p className="text-[15px] leading-[1.6] text-ink/60">
-                No {CATEGORY_LABELS[category].toLowerCase()} questions. The generator only
-                writes what the posting and the research justify &mdash; regenerate this
-                category, or add one by hand.
-              </p>
+      <div className="flex flex-col gap-10">
+        {shown.map((category) => (
+          <section key={category}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+              <h2 className="text-2xl font-semibold tracking-[-0.035em] text-ink">
+                {CATEGORY_LABELS[category]}
+                <span className="ml-3 text-base font-medium text-ink/50">
+                  {groups[category].length}
+                </span>
+              </h2>
+              <RegenerateButton
+                kit={kit}
+                section={category}
+                refetch={refetch}
+                label={CATEGORY_LABELS[category].toLowerCase()}
+                onRegenerated={() => {
+                  setOpenKey(null);
+                  onNeedsSchedule?.();
+                }}
+              />
             </div>
-          ) : (
-            <CategoryList
-              category={category}
-              questions={groups[category]}
-              requirements={requirements}
-              onPatch={patch}
-              onDelete={remove}
-              onNudge={nudge(category)}
-              onMoveCategory={moveCategory}
-              onCommitOrder={commitOrder}
-            />
-          )}
 
-          <AddQuestion kit={kit} category={category} mutate={mutate} />
-        </section>
-      ))}
+            <div className="overflow-hidden rounded-2xl border border-ink/10 bg-surface">
+              {groups[category].length === 0 ? (
+                <p className="px-5 py-8 text-center text-[15px] leading-[1.6] text-ink/60">
+                  No {CATEGORY_LABELS[category].toLowerCase()} questions. The generator only
+                  writes what the posting and the research justify &mdash; regenerate this
+                  category, or add one by hand.
+                </p>
+              ) : (
+                <CategoryList
+                  category={category}
+                  questions={groups[category]}
+                  openKey={openKey}
+                  setOpenKey={setOpenKey}
+                  onPatch={patch}
+                  onDelete={remove}
+                  onNudge={nudge(category)}
+                  onMoveCategory={moveCategory}
+                  onCommitOrder={commitOrder}
+                />
+              )}
+
+              <AddQuestion kit={kit} category={category} mutate={mutate} />
+            </div>
+          </section>
+        ))}
+      </div>
     </div>
+  );
+}
+
+function Chip({ active, onClick, label, count }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`shrink-0 cursor-pointer rounded-full px-3.5 py-1.5 text-sm font-semibold
+                  transition-colors duration-200 focus-visible:outline-none
+                  focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                    active
+                      ? "bg-ink text-white"
+                      : "border border-ink/20 text-ink/60 hover:border-ink/40 hover:text-ink"
+                  }`}
+    >
+      {label}
+      <span className={`ml-2 tabular-nums ${active ? "text-white/60" : "text-ink/35"}`}>
+        {count}
+      </span>
+    </button>
   );
 }
 
@@ -118,7 +170,8 @@ export default function QuestionsPanel({ kit, mutate, refetch, onNeedsSchedule }
 function CategoryList({
   category,
   questions,
-  requirements,
+  openKey,
+  setOpenKey,
   onPatch,
   onDelete,
   onNudge,
@@ -135,28 +188,32 @@ function CategoryList({
       axis="y"
       values={list}
       onReorder={setDragging}
-      className="mt-4 flex flex-col gap-3"
+      className="divide-y divide-ink/[0.07]"
     >
-      {list.map((question, index) => (
-        <QuestionCard
-          // Ids can collide across categories after a regeneration, because the server
-          // mints them per category. Scope the key.
-          key={`${category}:${question.id}`}
-          question={question}
-          requirements={requirements}
-          index={index}
-          count={list.length}
-          onPatch={onPatch}
-          onDelete={onDelete}
-          onMove={onNudge}
-          onMoveCategory={onMoveCategory}
-          onDragEnd={async () => {
-            const ordered = dragging;
-            setDragging(null);
-            if (ordered) await onCommitOrder(ordered);
-          }}
-        />
-      ))}
+      {list.map((question, index) => {
+        // Ids can collide across categories after a regeneration, because the server
+        // mints them per category. Scope the key.
+        const key = `${category}:${question.id}`;
+        return (
+          <QuestionRow
+            key={key}
+            question={question}
+            index={index}
+            count={list.length}
+            open={openKey === key}
+            onToggle={() => setOpenKey(openKey === key ? null : key)}
+            onPatch={onPatch}
+            onDelete={onDelete}
+            onMove={onNudge}
+            onMoveCategory={onMoveCategory}
+            onDragEnd={async () => {
+              const ordered = dragging;
+              setDragging(null);
+              if (ordered) await onCommitOrder(ordered);
+            }}
+          />
+        );
+      })}
     </Reorder.Group>
   );
 }
@@ -178,10 +235,10 @@ function AddQuestion({ kit, category, mutate }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-3 w-full cursor-pointer rounded-xl border border-dashed border-ink/20 px-4 py-3
-                   text-sm font-semibold text-ink/50 transition-colors duration-200
-                   hover:border-ink/40 hover:text-ink focus-visible:outline-none
-                   focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+        className="w-full cursor-pointer border-t border-ink/[0.07] px-4 py-3.5 text-left text-sm
+                   font-semibold text-ink/50 transition-colors duration-200 hover:bg-ink/[0.02]
+                   hover:text-ink focus-visible:outline-none focus-visible:ring-2
+                   focus-visible:ring-accent focus-visible:ring-inset sm:px-6"
       >
         + Add a {CATEGORY_LABELS[category].toLowerCase()} question
       </button>
@@ -189,7 +246,7 @@ function AddQuestion({ kit, category, mutate }) {
   }
 
   return (
-    <form onSubmit={submit} className="mt-3 rounded-2xl border border-ink/10 bg-surface p-4">
+    <form onSubmit={submit} className="border-t border-ink/[0.07] p-4 sm:p-6">
       <label htmlFor={`add-${category}`} className="mb-2 block text-sm font-medium text-ink/60">
         New {CATEGORY_LABELS[category].toLowerCase()} question
       </label>

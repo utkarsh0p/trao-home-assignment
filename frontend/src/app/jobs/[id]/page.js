@@ -1,6 +1,6 @@
 import JobProgress from "@/components/jobs/JobProgress";
 
-export const metadata = { title: "Building your kit — primer." };
+export const metadata = { title: "Building your kit — cember." };
 
 export default async function JobPage({ params }) {
   const { id } = await params;

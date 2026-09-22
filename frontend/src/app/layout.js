@@ -11,9 +11,9 @@ const dmSans = DM_Sans({
 });
 
 export const metadata = {
-  title: "primer. — interview prep built from the actual job",
+  title: "cember. — interview prep built from the actual job",
   description:
-    "Paste a job description, point us at the company, say how many days you have. primer. researches the company, writes a question against every requirement it found, and lays the work out day by day.",
+    "Paste a job description, point us at the company, say how many days you have. cember. researches the company, writes a question against every requirement it found, and lays the work out day by day.",
 };
 
 export default function RootLayout({ children }) {

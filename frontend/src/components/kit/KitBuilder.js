@@ -6,19 +6,12 @@ import ErrorCallout from "@/components/ErrorCallout";
 import RequireAuth from "@/components/RequireAuth";
 import FlashcardsPanel from "@/components/kit/FlashcardsPanel";
 import KitHeader from "@/components/kit/KitHeader";
-import OverviewPanel from "@/components/kit/OverviewPanel";
+import KitNav from "@/components/kit/KitNav";
+import CompanyPanel from "@/components/kit/CompanyPanel";
 import QuestionsPanel from "@/components/kit/QuestionsPanel";
 import RolePanel from "@/components/kit/RolePanel";
 import SchedulePanel from "@/components/kit/SchedulePanel";
 import { useKit } from "@/lib/useKit";
-
-const TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "role", label: "Role" },
-  { id: "questions", label: "Questions" },
-  { id: "flashcards", label: "Flashcards" },
-  { id: "schedule", label: "Schedule" },
-];
 
 export default function KitBuilder({ kitId }) {
   return (
@@ -30,7 +23,7 @@ export default function KitBuilder({ kitId }) {
 
 function Builder({ kitId }) {
   const { kit, error, mutate, refetch, dismissError } = useKit(kitId);
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("company");
   const [scheduleStale, setScheduleStale] = useState(false);
 
   if (error && !kit) {
@@ -73,77 +66,76 @@ function Builder({ kitId }) {
     <div className="bg-paper pb-20">
       <KitHeader kit={kit} />
 
-      {/* Pins to the very top: the site header scrolls away on this page, so there is
-          nothing above it to clear. Solid fill — a translucent one let the panel text
-          ghost through as it scrolled underneath. */}
-      <div className="sticky top-0 z-30 border-b border-ink/10 bg-paper">
+      {/* Below lg only: at lg and up the sidebar in the shell takes over.
+          Pins to the very top: the site header only sticks on the home page, so off the
+          home page it has scrolled away by the time this bar lands.
+          Solid fill: a translucent one let the panel text ghost through underneath. */}
+      <div className="sticky top-0 z-30 border-b border-ink/10 bg-paper lg:hidden">
         <div className="mx-auto w-full max-w-[1320px] px-5 sm:px-8 lg:px-12">
-          <div role="tablist" aria-label="Kit sections" className="-mb-px flex gap-1 overflow-x-auto">
-            {TABS.map((item) => (
-              <button
-                key={item.id}
-                role="tab"
-                type="button"
-                aria-selected={tab === item.id}
-                onClick={() => setTab(item.id)}
-                className={`shrink-0 cursor-pointer border-b-2 px-4 py-3 text-sm font-semibold
-                            transition-colors duration-200 focus-visible:outline-none
-                            focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                              tab === item.id
-                                ? "border-accent text-ink"
-                                : "border-transparent text-ink/60 hover:text-ink"
-                            }`}
-              >
-                {item.label}
-                {item.id === "schedule" && scheduleStale && (
-                  <span
-                    aria-label="needs rebuilding"
-                    className="ml-2 inline-block size-1.5 rounded-full bg-accent align-middle"
-                  />
-                )}
-              </button>
-            ))}
-          </div>
+          <KitNav
+            tab={tab}
+            setTab={setTab}
+            scheduleStale={scheduleStale}
+            orientation="horizontal"
+          />
         </div>
       </div>
 
       <Shell>
-        {error && (
-          <div className="mb-8">
-            <ErrorCallout title="That change didn't save." error={error}>
-              <Button variant="secondary" size="sm" onClick={dismissError}>
-                Dismiss
-              </Button>
-            </ErrorCallout>
-          </div>
-        )}
+        {/* Narrow nav column, wide content column — deliberately not an even split.
+            `self-start` keeps the grid from stretching the aside to the row height, which
+            would leave `sticky` with nothing to travel through. `minmax(0,1fr)` lets the
+            content column shrink so its overflow-x-auto children can scroll inside it. */}
+        <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10 xl:gap-12">
+          <aside className="hidden lg:sticky lg:top-6 lg:block lg:self-start">
+            <p className="mb-3 px-4 text-xs font-semibold uppercase tracking-[0.08em] text-ink/60">
+              Sections
+            </p>
+            <KitNav
+              tab={tab}
+              setTab={setTab}
+              scheduleStale={scheduleStale}
+              orientation="vertical"
+            />
+          </aside>
 
-        {tab === "overview" && (
-          <OverviewPanel {...shared} onGoToRole={() => setTab("role")} />
-        )}
-        {tab === "role" && (
-          <RolePanel kit={kit} onGoToQuestions={() => setTab("questions")} />
-        )}
-        {tab === "questions" && (
-          <QuestionsPanel
-            {...shared}
-            // Regenerating a category leaves the new questions in no day and does not
-            // recompute minutes, so flag the schedule as needing a rebuild.
-            onNeedsSchedule={() => setScheduleStale(true)}
-          />
-        )}
-        {tab === "flashcards" && <FlashcardsPanel {...shared} />}
-        {tab === "schedule" && (
-          <SchedulePanel
-            kit={kit}
-            refetch={async () => {
-              const next = await refetch();
-              setScheduleStale(false);
-              return next;
-            }}
-            onGoToQuestions={() => setTab("questions")}
-          />
-        )}
+          <div className="min-w-0">
+            {error && (
+              <div className="mb-8">
+                <ErrorCallout title="That change didn't save." error={error}>
+                  <Button variant="secondary" size="sm" onClick={dismissError}>
+                    Dismiss
+                  </Button>
+                </ErrorCallout>
+              </div>
+            )}
+
+            {tab === "company" && <CompanyPanel {...shared} />}
+            {tab === "role" && (
+              <RolePanel kit={kit} onGoToQuestions={() => setTab("questions")} />
+            )}
+            {tab === "questions" && (
+              <QuestionsPanel
+                {...shared}
+                // Regenerating a category leaves the new questions in no day and does not
+                // recompute minutes, so flag the schedule as needing a rebuild.
+                onNeedsSchedule={() => setScheduleStale(true)}
+              />
+            )}
+            {tab === "flashcards" && <FlashcardsPanel {...shared} />}
+            {tab === "schedule" && (
+              <SchedulePanel
+                kit={kit}
+                refetch={async () => {
+                  const next = await refetch();
+                  setScheduleStale(false);
+                  return next;
+                }}
+                onGoToQuestions={() => setTab("questions")}
+              />
+            )}
+          </div>
+        </div>
       </Shell>
     </div>
   );

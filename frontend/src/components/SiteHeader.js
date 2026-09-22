@@ -14,12 +14,15 @@ const NAV = [
 
 // [ logo ] — [ Home · My kits ] — [ New kit · profile ]
 //
-// Past the first scroll the bar narrows, rounds and picks up a blurred white fill:
-// the full-width header becomes a floating dock. One transition drives all of it.
+// Only the home page pins the bar. There, past the first scroll it narrows, rounds and
+// picks up a blurred white fill: the full-width header becomes a floating dock, one
+// transition driving all of it. Everywhere else the bar sits in the flow and scrolls
+// away with the page — the content views need the height back.
 
 export default function SiteHeader() {
   const scrolled = useScrolled(24);
   const pathname = usePathname();
+  const pinned = pathname === "/";
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPath, setMenuPath] = useState(pathname);
   const menuButtonRef = useRef(null);
@@ -43,13 +46,17 @@ export default function SiteHeader() {
   }, [menuOpen]);
 
   return (
-    <header className="pointer-events-none sticky top-0 z-50 h-20 w-full px-5 sm:px-8 lg:px-12">
+    <header
+      className={`pointer-events-none z-50 h-20 w-full px-5 sm:px-8 lg:px-12 ${
+        pinned ? "sticky top-0" : "relative"
+      }`}
+    >
       <div
         className={`pointer-events-auto mx-auto grid h-12 w-full translate-y-4
                     grid-cols-[1fr_auto_1fr] items-center gap-4 border border-transparent
                     transition-[max-width,padding,border-radius,border-color,background-color,box-shadow]
                     duration-500 ease-in-out ${
-                      scrolled
+                      pinned && scrolled
                         ? "max-w-[940px] rounded-full border-ink/10 bg-white/75 px-4 shadow-soft backdrop-blur"
                         : "max-w-[1320px] rounded-xl"
                     }`}
@@ -57,7 +64,7 @@ export default function SiteHeader() {
         <div className="flex items-center">
           <Link
             href="/"
-            aria-label="primer., home"
+            aria-label="cember., home"
             className="rounded-lg transition-opacity duration-200 hover:opacity-80
                        focus-visible:outline-none focus-visible:ring-2
                        focus-visible:ring-accent focus-visible:ring-offset-2"
@@ -72,11 +79,17 @@ export default function SiteHeader() {
           ))}
         </nav>
 
-        <div className="flex items-center justify-end gap-2">
-          <AccountSlot />
-          <Button href="/new" variant="dark" size="sm" className="hidden sm:inline-flex">
-            New kit
-          </Button>
+        {/* col-start-3 is load-bearing: below md the nav is display:none, and without it
+            auto-placement would drop this into the middle column. */}
+        <div className="col-start-3 flex items-center justify-end gap-2">
+          {/* Below md the row collapses to [ logo ] — [ hamburger ]; the account chip and
+              the New kit button move inside the panel rather than crowding the bar. */}
+          <div className="hidden items-center gap-2 md:flex">
+            <AccountSlot />
+            <Button href="/new" variant="dark" size="sm">
+              New kit
+            </Button>
+          </div>
 
           <button
             ref={menuButtonRef}
@@ -148,7 +161,7 @@ function AccountSlot() {
 }
 
 function MobilePanel({ pathname }) {
-  const { status, user } = useSession();
+  const { status } = useSession();
 
   return (
     <div
@@ -162,7 +175,7 @@ function MobilePanel({ pathname }) {
         ))}
         <MobileLink href="/new" label="New kit" pathname={pathname} />
         {status === "authenticated" ? (
-          <MobileLink href="/profile" label={user?.email ?? "Profile"} pathname={pathname} />
+          <MobileLink href="/profile" label="Profile" pathname={pathname} />
         ) : (
           status === "unauthenticated" && (
             <>

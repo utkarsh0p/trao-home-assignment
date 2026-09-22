@@ -139,6 +139,26 @@ export async function deleteFlashcard(kitId, flashcardId) {
   return kit;
 }
 
+/* ---------------------------------------------------------------- practice mode */
+
+/**
+ * The next session's deck, already ordered by the server (unseen first, then least
+ * confident). Unlike every other kit endpoint this answers with a derived view rather
+ * than a kit, so it must NOT be handed to useKit's `mutate`.
+ */
+export async function practiceNext(kitId, signal) {
+  return apiFetch(`/api/kits/${kitId}/practice/next`, { signal });
+}
+
+/** Records how confident the user felt. Answers with the whole kit, so `mutate` is fine. */
+export async function recordConfidence(kitId, flashcardId, confidence) {
+  const { kit } = await apiFetch(`/api/kits/${kitId}/practice/${flashcardId}`, {
+    method: "POST",
+    body: { confidence },
+  });
+  return kit;
+}
+
 /** 202 + a job. The kit is not returned — poll, then refetch. */
 export async function regenerateSection(kitId, section) {
   const { job } = await apiFetch(`/api/kits/${kitId}/regenerate`, {

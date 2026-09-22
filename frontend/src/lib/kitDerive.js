@@ -72,15 +72,6 @@ export function liveCoverage(kit) {
   };
 }
 
-/** Each requirement with the questions that cover it — the weak-spots view. */
-export function coverageByRequirement(kit) {
-  const questions = kit?.questions ?? [];
-  return (kit?.role?.requirements ?? []).map((requirement) => ({
-    ...requirement,
-    questions: questions.filter((q) => (q.requirement_ids ?? []).includes(requirement.id)),
-  }));
-}
-
 /**
  * Days with their question ids resolved. Dangling ids are dropped rather than rendered
  * as blanks: regenerating the schedule replaces it wholesale, and nothing guarantees the
@@ -107,6 +98,73 @@ export function resolveSchedule(kit) {
     // user reaches easily and should be told about.
     unscheduled: (kit?.questions ?? []).filter((q) => !scheduled.has(q.id)),
     totalMinutes: days.reduce((sum, day) => sum + (day.minutes ?? 0), 0),
+  };
+}
+
+/**
+ * The practice picture, mirroring the server's practiceSession stats
+ * (src/services/kit.service.js). Computed here so recording a confidence — which answers
+ * with a kit, not with stats — does not cost a second round trip.
+ *
+ * Returns requirement OBJECTS, not ids: "Kubernetes in production" is what the user is
+ * behind on; "r7" is what the JSON calls it.
+ */
+export function practiceStats(kit) {
+  const cards = kit?.flashcards ?? [];
+  const requirements = kit?.role?.requirements ?? [];
+  const known = new Map(requirements.map((r) => [r.id, r]));
+
+  const seen = cards.filter((card) => card.confidence != null);
+  const practised = new Set(
+    seen.flatMap((card) => card.requirement_ids ?? []).filter((id) => known.has(id)),
+  );
+
+  return {
+    total: cards.length,
+    seen: seen.length,
+    unseen: cards.length - seen.length,
+    practised: [...practised].map((id) => known.get(id)),
+    notPractised: requirements.filter((r) => !practised.has(r.id)),
+    // The cards the next session will lead with, for the end-of-session summary.
+    shaky: seen.filter((card) => (card.confidence ?? 5) <= 2),
+  };
+}
+
+/**
+ * What a regeneration is ABOUT to do, so the contract can be stated once — where the
+ * decision is made — instead of as a badge on every item. Mirrors the server's rule:
+ * only `origin === 'generated' && !pinned` may be thrown away.
+ */
+export function regenerationPreview(kit, section) {
+  if (section === "company_brief" || section === "schedule") {
+    const item = kit?.[section];
+    return {
+      single: true,
+      safe: item ? !isReplaceable(item) : false,
+      reason: item?.pinned
+        ? "pinned"
+        : item?.origin === "edited"
+          ? "edited"
+          : item?.origin === "manual"
+            ? "written by hand"
+            : null,
+    };
+  }
+
+  const items =
+    section === "flashcards"
+      ? (kit?.flashcards ?? [])
+      : (kit?.questions ?? []).filter((q) => q.category === section);
+
+  const kept = items.filter((item) => !isReplaceable(item));
+
+  return {
+    single: false,
+    willReplace: items.length - kept.length,
+    kept: kept.length,
+    keptEdited: kept.filter((i) => i.origin === "edited" && !i.pinned).length,
+    keptManual: kept.filter((i) => i.origin === "manual" && !i.pinned).length,
+    keptPinned: kept.filter((i) => i.pinned).length,
   };
 }
 

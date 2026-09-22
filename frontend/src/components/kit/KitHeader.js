@@ -41,7 +41,7 @@ export default function KitHeader({ kit }) {
                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
                              focus-visible:ring-offset-2"
                 >
-                  {kit.source.company || kit.source.company_url} &nearr;
+                  {kit.source.company || kit.source.company_url} &#8599;
                 </a>
               ) : (
                 <span className="text-[15px] font-semibold text-ink/70">

@@ -54,7 +54,7 @@ export default function SiteFooter() {
 
         <div className="mt-12 flex flex-col gap-2 border-t border-ink/10 pt-6 text-sm font-medium text-ink/50 sm:flex-row sm:items-center sm:justify-between">
           <p>Built for the Trao full-stack assessment.</p>
-          <p>&copy; {new Date().getFullYear()} primer.</p>
+          <p>&copy; {new Date().getFullYear()} cember.</p>
         </div>
       </div>
     </footer>
