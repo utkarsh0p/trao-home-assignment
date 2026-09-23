@@ -5,7 +5,7 @@ import Button from "@/components/Button";
 import ErrorCallout from "@/components/ErrorCallout";
 import RequireAuth from "@/components/RequireAuth";
 import FlashcardsPanel from "@/components/kit/FlashcardsPanel";
-import KitHeader from "@/components/kit/KitHeader";
+import KitHeader, { ExportButton } from "@/components/kit/KitHeader";
 import KitNav from "@/components/kit/KitNav";
 import CompanyPanel from "@/components/kit/CompanyPanel";
 import QuestionsPanel from "@/components/kit/QuestionsPanel";
@@ -97,6 +97,9 @@ function Builder({ kitId }) {
               scheduleStale={scheduleStale}
               orientation="vertical"
             />
+            <div className="mt-4 border-t border-ink/10 pt-3">
+              <ExportButton kit={kit} className="px-2" />
+            </div>
           </aside>
 
           <div className="min-w-0">
@@ -134,6 +137,12 @@ function Builder({ kitId }) {
                 onGoToQuestions={() => setTab("questions")}
               />
             )}
+
+            {/* Below lg the sidebar is hidden, so the export lives at the foot of the
+                page — out of the way, rather than the loudest control in the header. */}
+            <div className="mt-12 border-t border-ink/10 pt-4 lg:hidden">
+              <ExportButton kit={kit} />
+            </div>
           </div>
         </div>
       </Shell>

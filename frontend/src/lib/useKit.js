@@ -36,6 +36,9 @@ export function useKit(kitId) {
     try {
       const next = await call();
       setKit(next);
+      // A save that worked clears the last one that didn't. Without this, "That change
+      // didn't save." sat on screen over changes that had since saved fine.
+      setError(null);
       return next;
     } catch (cause) {
       setError(cause);
@@ -49,6 +52,7 @@ export function useKit(kitId) {
   const refetch = useCallback(async () => {
     const next = await getKit(kitId);
     setKit(next);
+    setError(null);
     return next;
   }, [kitId]);
 

@@ -108,7 +108,7 @@ function contractLine(kit, section) {
       : "Rewrites the brief from the pages we read.";
   }
 
-  const noun = section === "flashcards" ? "flashcard" : "question";
+  const noun = section === "flashcards" ? "card" : "question";
   const survivors = [
     preview.keptEdited ? `${preview.keptEdited} you edited` : null,
     preview.keptManual ? `${preview.keptManual} you wrote` : null,
@@ -127,7 +127,7 @@ function contractLine(kit, section) {
 
 function Report({ report }) {
   const { section, skipped, kept, keptBreakdown, replaced, added, keptReason } = report;
-  const noun = section === "flashcards" ? "flashcard" : "question";
+  const noun = section === "flashcards" ? "card" : "question";
 
   if (skipped) {
     return (

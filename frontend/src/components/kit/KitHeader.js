@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { exportKit } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
@@ -9,6 +9,10 @@ import { liveCoverage } from "@/lib/kitDerive";
 export default function KitHeader({ kit }) {
   const coverage = liveCoverage(kit);
   const gaps = coverage.uncovered.length;
+  // Prefer the days actually planned. `days_available` is what was asked for at intake
+  // and the two can disagree, which had the header claiming "5-day plan" over a 3-day list.
+  const days = kit.schedule?.days?.length || kit.schedule?.days_available || 0;
+  const updated = formatRelative(kit.updatedAt);
 
   return (
     <header className="border-b border-ink/10 bg-surface px-5 pb-8 pt-10 sm:px-8 lg:px-12">
@@ -48,46 +52,71 @@ export default function KitHeader({ kit }) {
                   {kit.source?.company}
                 </span>
               )}
-              <span className="text-sm font-medium text-ink/50">
-                Updated {formatRelative(kit.updatedAt)}
-              </span>
+              {/* formatRelative returns "" for an unparseable date — don't render a
+                  label with nothing after it. */}
+              {updated && (
+                <span className="text-sm font-medium text-ink/50">Updated {updated}</span>
+              )}
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-sky px-3 py-1 text-xs font-semibold text-ink/70">
-                {kit.schedule?.days_available ?? 0}-day plan
-              </span>
-              <span className="inline-flex items-center rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink/60">
-                {kit.questions?.length ?? 0} questions
-              </span>
-              <span className="inline-flex items-center rounded-full bg-ink/[0.04] px-3 py-1 text-xs font-semibold text-ink/60">
-                {kit.flashcards?.length ?? 0} flashcards
-              </span>
-              <span
-                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-ink/70 ${
-                  gaps === 0 ? "bg-mint" : "bg-sand"
-                }`}
-              >
-                {gaps === 0
-                  ? "Every requirement covered"
-                  : `${gaps} requirement${gaps === 1 ? "" : "s"} uncovered`}
-              </span>
+              <Pill tint="bg-sky">
+                {days}-day plan
+              </Pill>
+              <Pill>{count(kit.questions?.length ?? 0, "question")}</Pill>
+              <Pill>{count(kit.flashcards?.length ?? 0, "card")}</Pill>
+              {/* With no requirements, `uncovered` is empty and the old code read this as
+                  "every requirement covered" — a mint tick over a posting nothing could be
+                  pulled out of, contradicting the Role tab. A thin JD must produce a kit
+                  that says so (brief §10), so the zero case is its own honest state. */}
+              <Pill tint={coverage.total === 0 ? "bg-sand" : gaps === 0 ? "bg-mint" : "bg-sand"}>
+                {coverage.total === 0
+                  ? "No requirements found in this posting"
+                  : gaps === 0
+                    ? "Every requirement covered"
+                    : `${gaps} requirement${gaps === 1 ? "" : "s"} uncovered`}
+              </Pill>
             </div>
           </div>
-
-          <ExportButton kit={kit} />
         </div>
       </div>
     </header>
   );
 }
 
+function Pill({ tint = "bg-ink/[0.04]", children }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-ink/70 ${tint}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function count(n, noun) {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 /**
  * /export sets no Content-Disposition and sits behind a cookie-authed route, so a plain
  * link would render JSON in a tab rather than download it. Fetch and save client-side.
+ *
+ * Nothing in the brief asks for an in-app export — §9's requirement is the CLI. It lives
+ * here because style.md §8 puts ids, origins and pipeline counters in "the kit JSON, the
+ * export and the README — not the screen"; this is the door to that artefact, so it is
+ * deliberately quiet rather than a headline control.
  */
-function ExportButton({ kit }) {
+export function ExportButton({ kit, className = "" }) {
   const [state, setState] = useState("idle");
+  const timer = useRef(0);
+
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const reset = (ms) => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setState("idle"), ms);
+  };
 
   async function download() {
     setState("working");
@@ -98,40 +127,43 @@ function ExportButton({ kit }) {
 
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${slug(kit.title || kit.source?.role || "kit")}.json`;
+      // Same preference order as the <h1>, so the file is named after what the page calls
+      // this kit rather than the other way round.
+      anchor.download = `${slug(kit.source?.role || kit.title || "kit")}.json`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      // Revoking in the same tick as the click loses the download in some browsers.
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
 
       setState("done");
-      window.setTimeout(() => setState("idle"), 2000);
+      reset(2000);
     } catch {
       setState("failed");
-      window.setTimeout(() => setState("idle"), 3000);
+      reset(4000);
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={download}
-      disabled={state === "working"}
-      className="inline-flex w-full shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl
-                 border border-ink/20 bg-white/60 px-5 py-2.5 text-sm font-semibold text-ink
-                 transition-colors duration-200 sm:w-auto
-                 hover:border-ink/40 hover:bg-surface focus-visible:outline-none focus-visible:ring-2
-                 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:pointer-events-none
-                 disabled:opacity-50"
-    >
-      {state === "working"
-        ? "Exporting…"
-        : state === "done"
-          ? "Downloaded"
-          : state === "failed"
-            ? "Export failed"
-            : "Export JSON"}
-    </button>
+    <div className={className}>
+      <button
+        type="button"
+        onClick={download}
+        disabled={state === "working"}
+        className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm
+                   font-medium text-ink/50 transition-colors duration-200 hover:bg-ink/5
+                   hover:text-ink focus-visible:outline-none focus-visible:ring-2
+                   focus-visible:ring-accent focus-visible:ring-offset-2
+                   disabled:pointer-events-none disabled:opacity-50"
+      >
+        {state === "working" ? "Exporting…" : state === "done" ? "Downloaded" : "Export JSON"}
+      </button>
+      {/* The old version swallowed the error entirely and self-cleared, so a failure was
+          indistinguishable from never having clicked. */}
+      <p aria-live="polite" className={state === "failed" ? "mt-1 px-2 text-xs font-medium text-ink/70" : "sr-only"}>
+        {state === "failed" ? "Export failed — try again." : state === "done" ? "Downloaded." : ""}
+      </p>
+    </div>
   );
 }
 

@@ -23,3 +23,16 @@ export function formatRelative(value) {
 function plural(count, unit) {
   return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
 }
+
+/**
+ * "3h 45m" / "45m" / "2h". Minutes are integers by contract (brief §5), so there is
+ * nothing to round — and rounding was the bug: Math.round(29 / 60) rendered a 29-minute
+ * plan as "0 hours of work".
+ */
+export function formatDuration(minutes) {
+  const total = Math.max(0, Math.trunc(minutes ?? 0));
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (!hours) return `${rest}m`;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}

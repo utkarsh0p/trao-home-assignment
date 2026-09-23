@@ -30,49 +30,66 @@ const CONFIDENCE = [
   { value: 5, label: "Nailed it", tint: "bg-mint hover:bg-mint/70" },
 ];
 
-export default function PracticePanel({ kit, mutate, onBrowse }) {
-  const [order, setOrder] = useState(null);
-  const [index, setIndex] = useState(0);
+export default function PracticePanel({ kit, mutate, onBrowse, session, setSession }) {
   const [revealed, setRevealed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [rateError, setRateError] = useState(null);
+  const [attempt, setAttempt] = useState(0);
 
   const kitId = kit._id;
   const stats = practiceStats(kit);
 
-  const applySession = useCallback((cards) => {
-    setOrder(cards.map((card) => card.id));
-    setIndex(0);
-    setRevealed(false);
-    setEditing(false);
-    setError(null);
-  }, []);
+  // The session — the card ORDER and where we are in it — is owned by FlashcardsPanel, so
+  // stepping out to browse and back does not silently restart the run at card one.
+  const { order, index } = session;
+  const setOrder = useCallback((value) => setSession({ order: value, index: 0 }), [setSession]);
+  const setIndex = useCallback(
+    (next) => setSession((prev) => ({ ...prev, index: next(prev.index) })),
+    [setSession],
+  );
 
-  // Same shape as useKit's loader: the promise settles outside the effect body.
+  const applySession = useCallback(
+    (cards) => {
+      setSession({ order: cards.map((card) => card.id), index: 0 });
+      setRevealed(false);
+      setEditing(false);
+      setError(null);
+      setRateError(null);
+    },
+    [setSession],
+  );
+
+  // Same shape as useKit's loader: the promise settles outside the effect body. Only runs
+  // when there is no session yet, so returning from browse resumes rather than reorders.
   useEffect(() => {
+    if (order) return undefined;
     const controller = new AbortController();
     api
       .practiceNext(kitId, controller.signal)
-      .then((session) => applySession(session.cards))
+      .then((result) => applySession(result.cards))
       .catch((cause) => {
         if (cause?.name === "AbortError") return;
         setError(cause);
       });
     return () => controller.abort();
-  }, [kitId, applySession]);
+  }, [kitId, order, attempt, applySession]);
 
-  /** "Practise again" / "Try again" — refetches, so the ratings just recorded take effect. */
-  const restart = useCallback(async () => {
-    setOrder(null);
+  /**
+   * "Practise again" / "Try again". Clearing the order is the whole implementation — the
+   * effect above re-requests whenever there is no session, so the ratings just recorded
+   * are reflected in the new ordering. Fetching here as well would race it.
+   *
+   * `attempt` is what makes the retry path work: after a failed load `order` is already
+   * null, so clearing it again would not change the effect's deps and nothing would fire.
+   */
+  const restart = useCallback(() => {
     setError(null);
-    try {
-      const session = await api.practiceNext(kitId);
-      applySession(session.cards);
-    } catch (cause) {
-      setError(cause);
-    }
-  }, [kitId, applySession]);
+    setRateError(null);
+    setOrder(null);
+    setAttempt((value) => value + 1);
+  }, [setOrder]);
 
   // Resolve the order against the kit, dropping anything deleted since the session began.
   const deck = useMemo(() => {
@@ -88,25 +105,29 @@ export default function PracticePanel({ kit, mutate, onBrowse }) {
     async (confidence) => {
       if (!card || saving) return;
       setSaving(true);
+      setRateError(null);
       try {
         await mutate(() => api.recordConfidence(kitId, card.id, confidence));
         setIndex((value) => value + 1);
         setRevealed(false);
         setEditing(false);
       } catch {
-        /* useKit surfaces the error; stay on the card so the rating isn't lost silently. */
+        // Stay on the card so the rating isn't lost — and say so HERE. The kit-level
+        // callout renders at the top of the content column, off-screen mid-deck.
+        setRateError("That rating didn't save. Try again.");
       } finally {
         setSaving(false);
       }
     },
-    [card, kitId, mutate, saving],
+    [card, kitId, mutate, saving, setIndex],
   );
 
   const back = useCallback(() => {
     setIndex((value) => Math.max(0, value - 1));
     setRevealed(false);
     setEditing(false);
-  }, []);
+    setRateError(null);
+  }, [setIndex]);
 
   const patchCard = (body) => mutate(() => api.updateFlashcard(kitId, card.id, body));
 
@@ -138,7 +159,7 @@ export default function PracticePanel({ kit, mutate, onBrowse }) {
           There is nothing to practise yet.
         </h3>
         <p className="mt-3 text-[15px] leading-[1.6] text-ink/60">
-          This kit has no flashcards. Write one by hand, or regenerate the deck.
+          This kit has no cards yet. Write one by hand, or regenerate the deck.
         </p>
         <div className="mt-6 flex justify-center">
           <Button variant="secondary" size="sm" onClick={onBrowse}>
@@ -149,26 +170,34 @@ export default function PracticePanel({ kit, mutate, onBrowse }) {
     );
   }
 
+  const requirementTotal = stats.practised.length + stats.notPractised.length;
+
   return (
     <div className="mx-auto max-w-[680px]">
-      {/* A deck this small is usually the posting's fault, not a bug — say so rather than
-          letting the user wonder. §10. */}
-      {deck.length <= 2 && (
-        <p className="mb-6 rounded-2xl bg-sand p-4 text-[15px] leading-[1.6] text-ink/70">
-          <b className="font-semibold text-ink">
-            A short deck — {deck.length} card{deck.length === 1 ? "" : "s"}.
-          </b>{" "}
-          Cards are written from what the posting actually asked for, and this one yielded{" "}
-          {stats.practised.length + stats.notPractised.length} requirements. The Company tab
-          says what was and wasn&rsquo;t found.
-        </p>
-      )}
-
       {finished ? (
-        <Done stats={stats} onAgain={restart} onBrowse={onBrowse} />
+        <Done stats={stats} onAgain={restart} />
       ) : (
         <>
+          {/* A deck this small is usually the posting's fault, not a bug — say so rather
+              than letting the user wonder. §10. Inside this branch so the finished screen
+              doesn't stack three summaries on top of each other. */}
+          {deck.length <= 2 && (
+            <p className="mb-6 rounded-2xl bg-sand p-4 text-[15px] leading-[1.6] text-ink/70">
+              <b className="font-semibold text-ink">
+                A short deck — {deck.length} card{deck.length === 1 ? "" : "s"}.
+              </b>{" "}
+              Cards are written from what the posting actually asked for, and this one
+              yielded {requirementTotal} requirement{requirementTotal === 1 ? "" : "s"}. The
+              Company tab says what was and wasn&rsquo;t found.
+            </p>
+          )}
+
           <Progress index={index} total={deck.length} />
+
+          {/* The card changes under the user with no page move; announce where they are. */}
+          <p aria-live="polite" className="sr-only">
+            Card {index + 1} of {deck.length}
+          </p>
 
           <div className="mt-5 rounded-2xl border border-ink/10 bg-surface p-6 shadow-lifted sm:p-10">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink/50">
@@ -226,6 +255,14 @@ export default function PracticePanel({ kit, mutate, onBrowse }) {
                 )}
 
                 <p className="mt-7 text-sm font-medium text-ink/60">How well did you know that?</p>
+                {rateError && (
+                  <p
+                    role="alert"
+                    className="mt-3 rounded-xl bg-sand px-3.5 py-2.5 text-sm font-medium text-ink/70"
+                  >
+                    {rateError}
+                  </p>
+                )}
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
                   {CONFIDENCE.map((option) => (
                     <button
@@ -284,10 +321,13 @@ function Covered({ stats }) {
   return (
     <section className="mt-10 border-t border-ink/10 pt-8">
       <h3 className="text-lg font-semibold tracking-[-0.02em] text-ink">What you&rsquo;ve covered</h3>
+      {/* Lifetime, not this session — said out loud, because the progress bar directly
+          above this counts only the current run and the two numbers disagree. */}
       <p className="mt-2 text-[15px] leading-[1.6] text-ink/60">
-        {stats.seen} of {stats.total} card{stats.total === 1 ? "" : "s"} practised
+        Across every session so far: {stats.seen} of {stats.total} card
+        {stats.total === 1 ? "" : "s"} practised
         {total > 0 &&
-          `, across ${stats.practised.length} of ${total} things the posting asks for`}
+          `, covering ${stats.practised.length} of ${total} thing${total === 1 ? "" : "s"} the posting asks for`}
         .
       </p>
 
@@ -312,21 +352,20 @@ function Covered({ stats }) {
   );
 }
 
-function Done({ stats, onAgain, onBrowse }) {
+function Done({ stats, onAgain }) {
+  // `shaky` is every low-rated card in the kit, not only the ones seen in this run — so
+  // this says what the next session will lead with, and never claims how this one went.
   return (
     <div className="rounded-2xl border border-ink/10 bg-surface p-8 text-center shadow-lifted sm:p-10">
       <h3 className="text-2xl font-semibold tracking-[-0.035em] text-ink">Session finished.</h3>
       <p className="mx-auto mt-3 max-w-[420px] text-[15px] leading-[1.6] text-ink/60">
         {stats.shaky.length > 0
-          ? `${stats.shaky.length} card${stats.shaky.length === 1 ? "" : "s"} you were shaky on will come first next time.`
-          : "You were solid on everything you saw. The next round leads with whatever you have seen least."}
+          ? `${stats.shaky.length} card${stats.shaky.length === 1 ? "" : "s"} you rated shaky or worse will come first next time.`
+          : "Nothing is sitting at shaky or worse. The next round leads with whatever you have seen least."}
       </p>
-      <div className="mt-7 flex flex-wrap justify-center gap-2">
+      <div className="mt-7 flex justify-center">
         <Button variant="primary" size="sm" onClick={onAgain}>
           Practise again
-        </Button>
-        <Button variant="secondary" size="sm" onClick={onBrowse}>
-          Browse all cards
         </Button>
       </div>
     </div>
@@ -353,28 +392,38 @@ function Progress({ index, total }) {
 }
 
 /**
- * The whole session is runnable from the keyboard, which §12 asks for. Bindings are
- * ignored while a form control has focus, so they never swallow real typing — that
- * matters now that a card can be edited in place mid-run.
+ * The whole session is runnable from the keyboard, which §12 asks for.
+ *
+ * Two different guards, because the two kinds of binding compete with different things:
+ *
+ *   * Space and Enter ACTIVATE a focused button or link. A shortcut that preventDefaults
+ *     them would mean tabbing to "Previous card" and pressing Space reveals the answer
+ *     instead of pressing the button — so these defer to any focused interactive element.
+ *   * Digits and ArrowLeft activate nothing, so they only need to keep out of text entry.
  *
  * Going back and re-rating overwrites `confidence` and increments `timesSeen` again —
  * there is no un-rate endpoint. Acceptable: the ordering only reads the latest value.
  */
+const TEXT_ENTRY = "input, textarea, select, [contenteditable='true']";
+const ACTIVATABLE = `${TEXT_ENTRY}, button, a[href], summary, [tabindex]:not([tabindex='-1'])`;
+
 function useKeyboard({ active, revealed, setRevealed, rate, back, canGoBack }) {
   useEffect(() => {
     if (!active) return undefined;
 
     function onKeyDown(event) {
-      const tag = event.target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      const matches = (selector) => Boolean(target?.closest?.(selector));
 
       if (event.key === " " || event.key === "Enter") {
-        if (revealed) return;
+        if (revealed || matches(ACTIVATABLE)) return;
         event.preventDefault();
         setRevealed(true);
         return;
       }
+
+      if (matches(TEXT_ENTRY)) return;
 
       if (event.key === "ArrowLeft" && canGoBack) {
         event.preventDefault();

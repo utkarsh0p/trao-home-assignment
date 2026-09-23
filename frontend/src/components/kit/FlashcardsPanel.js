@@ -21,33 +21,75 @@ export default function FlashcardsPanel({ kit, mutate, refetch }) {
   const cards = sortedFlashcards(kit);
   const [view, setView] = useState("practise");
 
+  // Owned here, not inside PracticePanel, so stepping out to browse a card and coming
+  // back resumes the run instead of silently restarting it at card one.
+  const [session, setSession] = useState({ order: null, index: 0 });
+  const [regenerated, setRegenerated] = useState(false);
+
+  // Regenerating replaces card ids mid-run. Left alone, the session's stored ids resolve
+  // to nothing while the index stays put, so the user is teleported to a different card
+  // or straight to "finished" with no explanation. Drop the session and say why.
+  const onRegenerated = () => {
+    setSession({ order: null, index: 0 });
+    setRegenerated(true);
+  };
+
+  const practising = view === "practise";
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-semibold tracking-[-0.035em] text-ink">
-            {cards.length} card{cards.length === 1 ? "" : "s"}
+            {practising ? "Practice" : "All cards"}
+            <span className="ml-3 text-base font-medium text-ink/50">{cards.length}</span>
           </h2>
           <p className="mt-2 max-w-[520px] text-[15px] leading-[1.6] text-ink/60">
-            {view === "practise"
+            {practising
               ? "Least confident first, then whatever you have seen least."
               : "Everything in the deck. Add one, delete one, or fix the wording."}
           </p>
         </div>
         <div className="flex flex-wrap items-start gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setView(view === "practise" ? "browse" : "practise")}
-          >
-            {view === "practise" ? "Browse all cards" : "Back to practising"}
-          </Button>
-          <RegenerateButton kit={kit} section="flashcards" refetch={refetch} label="flashcards" />
+          {/* Hidden with an empty deck: there is nothing to practise, and the empty state
+              already offers the only useful way out. Two of these on screen was the bug. */}
+          {cards.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-pressed={!practising}
+              onClick={() => setView(practising ? "browse" : "practise")}
+            >
+              {practising ? "Browse all cards" : "Back to practising"}
+            </Button>
+          )}
+          <RegenerateButton
+            kit={kit}
+            section="flashcards"
+            refetch={refetch}
+            onRegenerated={onRegenerated}
+            label="cards"
+          />
         </div>
       </div>
 
-      {view === "practise" ? (
-        <PracticePanel kit={kit} mutate={mutate} onBrowse={() => setView("browse")} />
+      {/* Only while the replacement session is still untouched — once a card has been
+          rated this is stale news, so it clears itself rather than needing a dismiss. */}
+      {regenerated && practising && session.index === 0 && (
+        <p className="mb-6 rounded-2xl bg-sand p-4 text-[15px] leading-[1.6] text-ink/70">
+          <b className="font-semibold text-ink">The deck changed under your session.</b> These
+          are new cards, so practice has started again from the top.
+        </p>
+      )}
+
+      {practising ? (
+        <PracticePanel
+          kit={kit}
+          mutate={mutate}
+          onBrowse={() => setView("browse")}
+          session={session}
+          setSession={setSession}
+        />
       ) : (
         <CardList kit={kit} cards={cards} mutate={mutate} />
       )}
@@ -65,7 +107,7 @@ function CardList({ kit, cards, mutate }) {
     <div className="overflow-hidden rounded-2xl border border-ink/10 bg-surface">
       {cards.length === 0 ? (
         <p className="px-5 py-8 text-center text-[15px] leading-[1.6] text-ink/60">
-          No flashcards in this kit yet. Regenerate them, or write one by hand.
+          No cards in this kit yet. Regenerate them, or write one by hand.
         </p>
       ) : (
         <ul className="divide-y divide-ink/[0.07]">
@@ -184,7 +226,7 @@ function AddFlashcard({ kit, mutate }) {
                    hover:text-ink focus-visible:outline-none focus-visible:ring-2
                    focus-visible:ring-accent focus-visible:ring-inset sm:px-6"
       >
-        + Add a flashcard
+        + Add a card
       </button>
     );
   }
@@ -224,7 +266,7 @@ function AddFlashcard({ kit, mutate }) {
       </div>
       <div className="mt-3 flex gap-2">
         <Button type="submit" variant="primary" size="sm" disabled={!front.trim()}>
-          Add flashcard
+          Add card
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Cancel

@@ -72,16 +72,31 @@ export function liveCoverage(kit) {
   };
 }
 
+/** Mirrors MINUTES_PER_QUESTION in src/services/schedule.service.js. */
+const MINUTES_PER_QUESTION = 15;
+
 /**
  * Days with their question ids resolved. Dangling ids are dropped rather than rendered
  * as blanks: regenerating the schedule replaces it wholesale, and nothing guarantees the
  * generator only referenced questions that still exist.
+ *
+ * Each day is also classified. The classification walks the days in order and tracks
+ * which question ids have been seen, rather than matching on `focus` — `focus` is
+ * generated copy ("Spaced review — Technical depth"), and copy must not become a
+ * contract. A day that teaches something for the first time reads differently from the
+ * fifth time the same card comes round, and a 60-day runway is mostly neither.
  */
 export function resolveSchedule(kit) {
   const byId = new Map((kit?.questions ?? []).map((q) => [q.id, q]));
+  const requirements = kit?.role?.requirements ?? [];
+  const knownRequirements = new Map(requirements.map((r) => [r.id, r]));
   const scheduled = new Set();
+  const seen = new Set();
 
-  const days = (kit?.schedule?.days ?? []).map((day) => {
+  const raw = kit?.schedule?.days ?? [];
+  const lastDayNumber = raw.length ? raw[raw.length - 1].day : 0;
+
+  const days = raw.map((day) => {
     const questions = (day.question_ids ?? [])
       .map((id) => {
         const question = byId.get(id);
@@ -89,7 +104,48 @@ export function resolveSchedule(kit) {
         return question;
       })
       .filter(Boolean);
-    return { ...day, questions, danglingCount: (day.question_ids ?? []).length - questions.length };
+
+    const newQuestions = questions.filter((q) => !seen.has(q.id));
+    const repeatQuestions = questions.filter((q) => seen.has(q.id));
+    for (const question of questions) seen.add(question.id);
+
+    const type = !questions.length
+      ? "rest"
+      : newQuestions.length
+        ? "teaching"
+        : day.day === lastDayNumber
+          ? "final"
+          : "review";
+
+    // The requirements this day actually touches, as objects — "Kubernetes in
+    // production" is what the user is revising; "r7" is what the JSON calls it.
+    const dayRequirements = [];
+    const taken = new Set();
+    for (const question of questions) {
+      for (const id of question.requirement_ids ?? []) {
+        if (taken.has(id) || !knownRequirements.has(id)) continue;
+        taken.add(id);
+        dayRequirements.push(knownRequirements.get(id));
+      }
+    }
+    dayRequirements.sort((a, b) => (a.priority === b.priority ? 0 : a.priority === "must" ? -1 : 1));
+
+    return {
+      ...day,
+      questions,
+      newQuestions,
+      repeatQuestions,
+      type,
+      requirements: dayRequirements,
+      danglingCount: (day.question_ids ?? []).length - questions.length,
+      // `minutes` is written once by buildSchedule and never recomputed when a question
+      // is deleted, so a day can read "45 min" over two questions. Only meaningful for
+      // teaching days — review days are max(30, n * 10), not n * 15.
+      minutesDrift:
+        type === "teaching" && day.minutes !== questions.length * MINUTES_PER_QUESTION
+          ? day.minutes - questions.length * MINUTES_PER_QUESTION
+          : 0,
+    };
   });
 
   return {
@@ -98,6 +154,68 @@ export function resolveSchedule(kit) {
     // user reaches easily and should be told about.
     unscheduled: (kit?.questions ?? []).filter((q) => !scheduled.has(q.id)),
     totalMinutes: days.reduce((sum, day) => sum + (day.minutes ?? 0), 0),
+  };
+}
+
+/**
+ * The three properties the brief (§8) says a schedule must have, computed rather than
+ * asserted. The panel used to claim "harder and higher-priority material lands earlier"
+ * in prose and show nothing; these let it show the evidence instead — or say plainly
+ * which property stopped holding after an edit.
+ *
+ * `mustUnscheduled` is deliberately NOT liveCoverage().uncoveredMust. That one means "a
+ * must-have with no question at all" and belongs to the Role tab. This one means "a
+ * must-have whose questions exist but sit in no day", which is reachable by deleting a
+ * question or regenerating a category — kit.service prunes dead ids out of the days but
+ * never re-runs buildSchedule.
+ */
+export function scheduleAudit(kit) {
+  const { days, unscheduled } = resolveSchedule(kit);
+  const requirements = kit?.role?.requirements ?? [];
+  const mustIds = new Set(requirements.filter((r) => r.priority === "must").map((r) => r.id));
+
+  const scheduledIds = new Set(days.flatMap((day) => day.questions.map((q) => q.id)));
+  const scheduledMust = new Set();
+  for (const question of kit?.questions ?? []) {
+    if (!scheduledIds.has(question.id)) continue;
+    for (const id of question.requirement_ids ?? []) {
+      if (mustIds.has(id)) scheduledMust.add(id);
+    }
+  }
+
+  // The server's own ranking key, recomputed: schedule.service.js rankQuestions sorts by
+  // (isMust ? 100 : 0) + difficulty, descending. If the allocation held, that weight
+  // never rises as you move down the teaching days.
+  const weightOf = (question) =>
+    ((question.requirement_ids ?? []).some((id) => mustIds.has(id)) ? 100 : 0) +
+    (question.difficulty ?? 2);
+
+  const teaching = days.filter((day) => day.type === "teaching" && day.newQuestions.length);
+  let orderingHolds = true;
+  let ceiling = Infinity;
+  for (const day of teaching) {
+    const weights = day.newQuestions.map(weightOf);
+    if (Math.max(...weights) > ceiling) orderingHolds = false;
+    ceiling = Math.min(...weights);
+  }
+
+  const counts = { teaching: 0, review: 0, final: 0, rest: 0 };
+  for (const day of days) counts[day.type] += 1;
+
+  return {
+    counts,
+    daysPlanned: days.length,
+    daysRequested: kit?.schedule?.days_available ?? days.length,
+    daysMatch: days.length === (kit?.schedule?.days_available ?? days.length),
+    mustTotal: mustIds.size,
+    mustUnscheduled: requirements.filter(
+      (r) => r.priority === "must" && !scheduledMust.has(r.id),
+    ),
+    orderingHolds,
+    // Only counts days that teach; a day emptied by deletion shows up here.
+    minutesDrift: days.filter((day) => day.minutesDrift !== 0),
+    dangling: days.filter((day) => day.danglingCount > 0),
+    unscheduledCount: unscheduled.length,
   };
 }
 

@@ -1,13 +1,15 @@
 "use client";
 
 // The five things the brief says the user reads: "a company brief, a role breakdown, a
-// categorised question bank, flashcards and a study schedule". Practising is a use of the
-// flashcards, not a sixth artefact, so it lives inside that tab.
+// categorised question bank, flashcards and a study schedule". The flashcards tab is
+// named Practice after brief §7 ("Practice Mode"): the cards are the material, practice
+// is the mode, and browsing the deck to edit it lives inside that mode.
+// The `flashcards` id is the server's section contract and does not change.
 export const TABS = [
   { id: "company", label: "Company" },
   { id: "role", label: "Role" },
   { id: "questions", label: "Questions" },
-  { id: "flashcards", label: "Flashcards" },
+  { id: "flashcards", label: "Practice" },
   { id: "schedule", label: "Schedule" },
 ];
 
