@@ -1,7 +1,9 @@
 import mongoose from 'mongoose';
 
 /**
- * Cleaned page text and search results keyed by URL, with a TTL index.
+ * Cleaned page text, search results and curated resources, with a TTL index. Pages are
+ * keyed by URL, searches by company, resources by role — so two kits for the same role
+ * at different companies share every resource lookup.
  *
  * Chosen over a LangGraph checkpointer (.claude/decisions.md): a crashed run is marked
  * failed on boot and retried from scratch, but skips the network, which is where the
@@ -14,7 +16,7 @@ const CACHE_TTL_SECONDS = 60 * 60 * 24;
 const fetchCacheSchema = new mongoose.Schema(
   {
     key: { type: String, required: true, unique: true, index: true },
-    kind: { type: String, enum: ['page', 'search'], required: true },
+    kind: { type: String, enum: ['page', 'search', 'resources'], required: true },
     payload: { type: mongoose.Schema.Types.Mixed, required: true },
     createdAt: { type: Date, default: Date.now, expires: CACHE_TTL_SECONDS },
   },
