@@ -52,45 +52,32 @@ export default function KitHeader({ kit }) {
                   {kit.source?.company}
                 </span>
               )}
-              {/* formatRelative returns "" for an unparseable date — don't render a
-                  label with nothing after it. */}
-              {updated && (
-                <span className="text-sm font-medium text-ink/50">Updated {updated}</span>
-              )}
+              {/* formatRelative returns "" for an unparseable date, so the timestamp
+                  is appended only when there is one. */}
+              <span className="text-sm font-medium text-ink/50">
+                {days}-day plan &middot; {count(kit.questions?.length ?? 0, "question")}{" "}
+                &middot; {count(kit.flashcards?.length ?? 0, "card")}
+                {updated && ` · updated ${updated}`}
+              </span>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Pill tint="bg-sky">
-                {days}-day plan
-              </Pill>
-              <Pill>{count(kit.questions?.length ?? 0, "question")}</Pill>
-              <Pill>{count(kit.flashcards?.length ?? 0, "card")}</Pill>
-              {/* With no requirements, `uncovered` is empty and the old code read this as
-                  "every requirement covered" — a mint tick over a posting nothing could be
-                  pulled out of, contradicting the Role tab. A thin JD must produce a kit
-                  that says so (brief §10), so the zero case is its own honest state. */}
-              <Pill tint={coverage.total === 0 ? "bg-sand" : gaps === 0 ? "bg-mint" : "bg-sand"}>
-                {coverage.total === 0
-                  ? "No requirements found in this posting"
-                  : gaps === 0
-                    ? "Every requirement covered"
+            {/* Four pills — one of them a whole sentence — was the loudest thing under
+                the title and said nothing the user had asked. The counts are meta, so they
+                read as meta; the only one that earns a pill is a gap, because a gap is
+                something to act on. A fully covered kit says nothing at all. */}
+            {(coverage.total === 0 || gaps > 0) && (
+              <div className="mt-4">
+                <span className="inline-flex items-center rounded-full bg-sand px-3 py-1 text-xs font-semibold text-ink/70">
+                  {coverage.total === 0
+                    ? "No requirements found in this posting"
                     : `${gaps} requirement${gaps === 1 ? "" : "s"} uncovered`}
-              </Pill>
-            </div>
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
     </header>
-  );
-}
-
-function Pill({ tint = "bg-ink/[0.04]", children }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-ink/70 ${tint}`}
-    >
-      {children}
-    </span>
   );
 }
 

@@ -1,11 +1,10 @@
 /**
- * Whether a regeneration would keep or replace this thing.
+ * Whether a regeneration would keep this thing.
  *
- * Used on the company brief only — a single item, where the state is genuinely worth
- * knowing at a glance. Questions and flashcards deliberately do NOT wear this: the brief
- * asks us to represent generated / edited / pinned state and explain it in the README
- * (§6), not to label every row. For those, the contract is stated once, on the
- * Regenerate button, where the decision is actually made.
+ * Only non-default states render. Generated-and-unpinned is ~90% of items and is what a
+ * user already assumes, so it says nothing at all — a grey "Generated" pill beside every
+ * heading was chrome restating the default. "You wrote this" and "this is pinned" are the
+ * states worth a glance, because they change what Regenerate does.
  */
 
 const LABELS = {
@@ -26,16 +25,7 @@ export default function OriginBadge({ item }) {
   }
 
   const label = LABELS[item?.origin];
-  if (!label) {
-    return (
-      <span
-        title="Generated and unpinned — regenerating this section will replace it."
-        className={`${PILL} bg-ink/[0.04] text-ink/50`}
-      >
-        Generated
-      </span>
-    );
-  }
+  if (!label) return null;
 
   return (
     <span title={label.title} className={`${PILL} bg-lavender text-ink/70`}>

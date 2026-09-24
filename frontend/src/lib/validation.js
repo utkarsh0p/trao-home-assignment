@@ -37,12 +37,23 @@ export function normalizeCompanyUrl(value) {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { ok: false, error: "Only http and https addresses can be fetched." };
   }
-  if (!url.hostname.includes(".")) {
+  // A dot is what separates a real host from a typo like "acme" — but not the only
+  // thing. The brief serves company fixtures from a local address and Appendix B's own
+  // example is http://localhost:8099/acme/, so a dotless loopback host is legitimate
+  // input, not a mistake. The server is the authority either way: urlGuard blocks
+  // private and loopback addresses when NODE_ENV=production and allows them otherwise.
+  if (!url.hostname.includes(".") && !isBareLocalHost(url.hostname)) {
     return { ok: false, error: "That doesn't look like a web address." };
   }
 
   url.hash = "";
   return { ok: true, url: url.toString() };
+}
+
+/** "localhost", or an IPv6 literal, which URL keeps wrapped in brackets. */
+function isBareLocalHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || (host.startsWith("[") && host.endsWith("]"));
 }
 
 export function checkDays(value) {

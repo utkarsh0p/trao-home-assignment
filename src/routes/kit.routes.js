@@ -28,6 +28,8 @@ router.delete('/:id/flashcards/:fid', kit.deleteFlashcard);
 
 router.patch('/:id/brief', validateBody(kit.briefPatchSchema), kit.updateBrief);
 
+router.patch('/:id/schedule/:day', validateBody(kit.dayCompleteSchema), kit.setDayComplete);
+
 router.get('/:id/practice/next', kit.practiceNext);
 router.post('/:id/practice/:fid', validateBody(kit.confidenceSchema), kit.recordConfidence);
 

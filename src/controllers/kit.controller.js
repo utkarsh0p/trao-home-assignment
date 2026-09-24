@@ -66,6 +66,8 @@ export const briefPatchSchema = z
 
 export const confidenceSchema = z.object({ confidence: z.number().int().min(1).max(5) });
 
+export const dayCompleteSchema = z.object({ complete: z.boolean() });
+
 export const regenerateSchema = z.object({ section: z.enum(REGENERATABLE) });
 
 /** Wraps a service call that returns a kit document into the standard response. */
@@ -129,6 +131,10 @@ export const deleteFlashcard = respondWithKit((req) =>
 
 export const updateBrief = respondWithKit((req) =>
   kitService.updateBrief(req.user.id, req.params.id, req.body),
+);
+
+export const setDayComplete = respondWithKit((req) =>
+  kitService.setDayComplete(req.user.id, req.params.id, Number(req.params.day), req.body.complete),
 );
 
 export const recordConfidence = respondWithKit((req) =>

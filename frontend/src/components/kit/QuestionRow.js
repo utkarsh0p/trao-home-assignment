@@ -3,15 +3,20 @@
 import { Reorder, useDragControls } from "motion/react";
 import InlineEdit from "@/components/kit/InlineEdit";
 import PinButton from "@/components/kit/PinButton";
-import { CATEGORY_LABELS, QUESTION_CATEGORIES } from "@/lib/kitDerive";
+import OriginBadge from "@/components/kit/OriginBadge";
+import { CATEGORY_LABELS, QUESTION_CATEGORIES, questionHealth } from "@/lib/kitDerive";
 
 /**
  * One question, as a row in a shared card rather than a card of its own.
  *
- * The controls are exactly §6's list and no more: edit the question, edit the answer
- * outline, reorder, move it to another category, delete it, pin it. Difficulty and the
- * requirement links stay in the kit — they rank the schedule and make coverage checkable
- * — but neither is something the brief asks a candidate to sit and adjust.
+ * The controls are §6's list: edit the question, edit the answer outline, reorder, move
+ * it to another category, delete it, pin it.
+ *
+ * Difficulty shows on the closed row as three pips and is editable inside: it ranks the
+ * schedule, so a user should be able to see why a question sat on day one. The
+ * requirement links are not shown: as closed-row chips they were truncated sentences, and
+ * the one part of coverage a candidate can act on — a requirement with no question — is
+ * already named on the Role tab and on the row itself as "Needs a linked requirement".
  *
  * Reordering stays on the closed row because it is a list-level action you repeat across
  * rows; pin and delete are item-level and live inside. Nothing is revealed by hover —
@@ -31,6 +36,8 @@ export default function QuestionRow({
 }) {
   const controls = useDragControls();
   const bodyId = `question-body-${question.category}-${question.id}`;
+
+  const health = questionHealth(question);
 
   return (
     <Reorder.Item
@@ -73,11 +80,27 @@ export default function QuestionRow({
             <path d="m9 18 6-6-6-6" />
           </svg>
 
-          <span
-            className={`min-w-0 flex-1 text-[15px] font-semibold leading-[1.45] text-ink
-                        sm:text-base ${open ? "" : "line-clamp-1"}`}
-          >
-            {question.prompt}
+          <span className="min-w-0 flex-1">
+            <span
+              className={`block text-[15px] font-semibold leading-[1.45] text-ink
+                          sm:text-base ${open ? "" : "line-clamp-1"}`}
+            >
+              {question.prompt}
+            </span>
+
+            {/* The requirement pills that used to sit here truncated mid-sentence at
+                180px, so they read as ellipsis and needed a hover a phone cannot give.
+                What survives is what is actionable: how hard it is, whether it is a stub,
+                and whether it is yours. OriginBadge renders nothing for the default. */}
+            <span className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              <Difficulty value={question.difficulty} />
+              {!health.complete && (
+                <span className="rounded-full bg-sand px-2 py-0.5 text-[11px] font-semibold text-ink/70">
+                  Needs {health.missing.join(" and ")}
+                </span>
+              )}
+              <OriginBadge item={question} />
+            </span>
           </span>
         </button>
 
@@ -119,6 +142,25 @@ export default function QuestionRow({
           />
 
           <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink/50">
+              Difficulty
+              <select
+                value={question.difficulty ?? 2}
+                onChange={(event) =>
+                  onPatch(question, { difficulty: Number(event.target.value) })
+                }
+                aria-label={`Difficulty for question ${index + 1}`}
+                className="cursor-pointer rounded-lg border border-ink/[0.07] bg-paper px-2 py-1
+                           text-base font-semibold text-ink/70 focus:border-accent/40
+                           focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30
+                           sm:text-xs"
+              >
+                <option value={1}>Warm-up</option>
+                <option value={2}>Standard</option>
+                <option value={3}>Hard</option>
+              </select>
+            </label>
+
             <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink/50">
               Move to
               <select
@@ -180,5 +222,22 @@ function IconButton({ label, onClick, path, disabled, destructive }) {
         <path d={path} />
       </svg>
     </button>
+  );
+}
+
+/** Three pips: the same 1-3 scale the scheduler ranks on, shown rather than described. */
+function Difficulty({ value = 2 }) {
+  const label = { 1: "Warm-up", 2: "Standard", 3: "Hard" }[value] ?? "Standard";
+  return (
+    <span className="inline-flex items-center gap-1" title={`Difficulty: ${label}`}>
+      <span className="sr-only">Difficulty: {label}</span>
+      {[1, 2, 3].map((pip) => (
+        <span
+          key={pip}
+          aria-hidden="true"
+          className={`size-1.5 rounded-full ${pip <= value ? "bg-ink/40" : "bg-ink/[0.12]"}`}
+        />
+      ))}
+    </span>
   );
 }

@@ -15,52 +15,20 @@ import * as api from "@/lib/api";
  * for whoever built the pipeline rather than for whoever is sitting the interview.
  */
 export default function CompanyPanel({ kit, mutate, refetch }) {
-  const notes = kit.notes ?? [];
-  const errors = kit.researchErrors ?? [];
   const brief = kit.company_brief ?? {};
+  // Notes and unretrievable sources are two arrays of the same thing from the user's side
+  // — something we looked for and did not get. One list, deduped.
+  const gaps = [
+    ...new Set([
+      ...(kit.notes ?? []),
+      ...(kit.researchErrors ?? []).map((error) => error.message),
+    ]),
+  ];
 
   const patchBrief = (body) => mutate(() => api.updateBrief(kit._id, body));
 
   return (
     <div className="flex flex-col gap-10">
-      {/* What we could not find comes first. A thin result reported honestly is the point
-          of §10, and burying it would defeat it. */}
-      {notes.length > 0 && (
-        <section>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em] text-ink">
-            What we found, and what we didn&rsquo;t
-          </h2>
-          <ul className="mt-4 flex flex-col gap-3">
-            {notes.map((note) => (
-              <li
-                key={note}
-                className="rounded-2xl bg-sand p-4 text-[15px] leading-[1.6] text-ink/70"
-              >
-                {note}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {errors.length > 0 && (
-        <section>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em] text-ink">
-            Sources we couldn&rsquo;t retrieve
-          </h2>
-          <p className="mt-2 text-[15px] leading-[1.6] text-ink/60">
-            These were skipped rather than failing the run.
-          </p>
-          <ul className="mt-4 divide-y divide-ink/10 rounded-2xl border border-ink/10">
-            {errors.map((error, index) => (
-              <li key={`${error.code}-${index}`} className="px-4 py-3">
-                <span className="text-[15px] leading-[1.6] text-ink/70">{error.message}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <section>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -110,6 +78,26 @@ export default function CompanyPanel({ kit, mutate, refetch }) {
           </div>
         )}
       </section>
+
+      {/* A thin result reported honestly is the point of §10, so it stays — but it used to
+          open the page as two stacked sand banners under a headline, which made the first
+          thing you saw on your own prep kit a list of what we failed to find. The brief
+          leads; the gaps sit under it, quietly, still in full. */}
+      {gaps.length > 0 && (
+        <section className="max-w-[680px] border-t border-ink/10 pt-6">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink/50 sm:text-xs">
+            What we couldn&rsquo;t find
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {gaps.map((gap) => (
+              <li key={gap} className="flex gap-3 text-[15px] leading-[1.6] text-ink/60">
+                <span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-ink/20" />
+                {gap}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

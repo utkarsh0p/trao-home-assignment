@@ -129,12 +129,14 @@ function Builder({ kitId }) {
             {tab === "schedule" && (
               <SchedulePanel
                 kit={kit}
+                mutate={mutate}
                 refetch={async () => {
                   const next = await refetch();
                   setScheduleStale(false);
                   return next;
                 }}
                 onGoToQuestions={() => setTab("questions")}
+                onPractise={() => setTab("flashcards")}
               />
             )}
 

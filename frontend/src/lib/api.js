@@ -109,6 +109,15 @@ export const addFlashcard = kitMutation("/flashcards", "POST");
 export const updateBrief = kitMutation("/brief", "PATCH");
 export const reorderQuestions = kitMutation("/questions/reorder", "PATCH");
 
+/** Marks a day of the plan done, or undoes it. Answers with the whole kit. */
+export async function setDayComplete(kitId, day, complete) {
+  const { kit } = await apiFetch(`/api/kits/${kitId}/schedule/${day}`, {
+    method: "PATCH",
+    body: { complete },
+  });
+  return kit;
+}
+
 export async function updateQuestion(kitId, questionId, patch) {
   const { kit } = await apiFetch(`/api/kits/${kitId}/questions/${questionId}`, {
     method: "PATCH",

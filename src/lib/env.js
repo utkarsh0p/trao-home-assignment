@@ -31,6 +31,11 @@ export const env = {
       ? required('JWT_SECRET')
       : 'dev-only-insecure-jwt-secret'),
 
+  // Optional, exactly like mongoUri above. A configured provider gives kits research
+  // into how a company interviews; without one the pipeline says so and carries on. No
+  // code branches on which command is running — see src/lib/search.js.
+  tavilyApiKey: process.env.TAVILY_API_KEY ?? '',
+
   googleApiKey: process.env.GOOGLE_API_KEY ?? '',
   geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.6-flash',
   // Max in-flight model calls, and only a ceiling: repeated 429s narrow it to 1 for the

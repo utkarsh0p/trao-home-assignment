@@ -336,12 +336,13 @@ function Covered({ stats }) {
           <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink/50">
             Not practised yet
           </p>
-          <ul className="mt-3 flex flex-wrap gap-2">
+          <ul className="mt-3 flex max-w-[680px] flex-col gap-2">
             {stats.notPractised.map((requirement) => (
               <li
                 key={requirement.id}
-                className="max-w-[320px] truncate rounded-full bg-sand px-3 py-1 text-xs font-semibold text-ink/70"
+                className="flex gap-3 text-[15px] leading-[1.6] text-ink/60"
               >
+                <span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-ink/20" />
                 {requirement.text}
               </li>
             ))}

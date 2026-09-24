@@ -14,6 +14,11 @@ const POLL_MS = 1200;
  * It has to be: finishJob overwrites currentStep with 'done', so the server's own
  * "skipped — your edits were kept" / "replaced N generated item(s)" message is gone by the
  * time the job reports success. Diffing also lets us say WHY something survived.
+ *
+ * This component renders on six screens, so its resting state has to be quiet. The full
+ * contract lives in the button's tooltip; the only thing that earns a visible line before
+ * the press is work of the user's that the press would protect. When there is none —
+ * the common case — the button stands alone.
  */
 export default function RegenerateButton({ kit, section, refetch, onRegenerated, label }) {
   const [state, setState] = useState({ phase: "idle", report: null, error: null });
@@ -47,6 +52,7 @@ export default function RegenerateButton({ kit, section, refetch, onRegenerated,
   }
 
   const running = state.phase === "running";
+  const protects = protectedLine(kit, section);
 
   return (
     <div>
@@ -54,6 +60,7 @@ export default function RegenerateButton({ kit, section, refetch, onRegenerated,
         type="button"
         onClick={run}
         disabled={running}
+        title={contractLine(kit, section)}
         className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-ink/20
                    bg-white/60 px-4 py-2 text-sm font-semibold text-ink transition-colors
                    duration-200 hover:border-ink/40 hover:bg-surface focus-visible:outline-none
@@ -70,13 +77,11 @@ export default function RegenerateButton({ kit, section, refetch, onRegenerated,
         )}
       </button>
 
-      <p className="mt-2 max-w-[420px] text-sm font-medium leading-[1.5] text-ink/50">
-        {running
-          ? section === "schedule"
-            ? "Recomputing the plan — this is arithmetic, not a model call."
-            : "Writing fresh content."
-          : contractLine(kit, section)}
-      </p>
+      {!running && protects && (
+        <p className="mt-2 max-w-[320px] text-sm font-medium leading-[1.5] text-ink/50">
+          {protects}
+        </p>
+      )}
 
       {state.error && (
         <div className="mt-4">
@@ -90,12 +95,21 @@ export default function RegenerateButton({ kit, section, refetch, onRegenerated,
 }
 
 /**
- * What this button is about to do, said once, here — where the decision is made.
- *
- * The brief asks us to represent generated / edited / pinned state and explain it in the
- * README; it does not ask for a badge on every item. Stating the real counts at the point
- * of the press is both quieter and more useful than labelling 22 rows.
+ * The one thing worth saying before the press: what of yours survives it. Returns null
+ * when the answer is "nothing of yours is at stake", which is most of the time.
  */
+function protectedLine(kit, section) {
+  const preview = regenerationPreview(kit, section);
+
+  if (preview.single) {
+    return preview.safe ? `You ${preview.reason} this — it will be kept as it is.` : null;
+  }
+
+  if (preview.kept === 0) return null;
+  return `Keeps ${preview.kept} of yours.`;
+}
+
+/** The full contract, for the button's tooltip. */
 function contractLine(kit, section) {
   const preview = regenerationPreview(kit, section);
 
@@ -117,7 +131,7 @@ function contractLine(kit, section) {
 
   const replaces =
     preview.willReplace === 0
-      ? `Nothing here would be replaced.`
+      ? "Nothing here would be replaced."
       : `Rewrites ${preview.willReplace} generated ${noun}${preview.willReplace === 1 ? "" : "s"}.`;
 
   return survivors.length
@@ -125,54 +139,29 @@ function contractLine(kit, section) {
     : replaces;
 }
 
+/** What actually happened, in one sentence. */
 function Report({ report }) {
-  const { section, skipped, kept, keptBreakdown, replaced, added, keptReason } = report;
+  const { section, skipped, kept, replaced, added } = report;
   const noun = section === "flashcards" ? "card" : "question";
 
+  let text;
   if (skipped) {
-    return (
-      <div className="mt-4 rounded-2xl bg-mint p-4">
-        <p className="text-[15px] leading-[1.6] text-ink/70">
-          <b className="font-semibold text-ink">Left alone.</b> You had {keptReason ?? "changed"}{" "}
-          this section, so it was kept exactly as it was rather than being overwritten.
-        </p>
-      </div>
-    );
+    text = "Left alone — your version was kept.";
+  } else if (section === "company_brief" || section === "schedule") {
+    text = section === "schedule" ? "Days recomputed." : "Brief rewritten.";
+  } else {
+    const parts = [
+      replaced === 0 ? "Nothing replaced" : `Replaced ${replaced}`,
+      added > 0 ? `wrote ${added} new ${noun}${added === 1 ? "" : "s"}` : null,
+      kept > 0 ? `kept ${kept} of yours` : null,
+    ].filter(Boolean);
+    text = `${parts.join(", ")}.`;
   }
-
-  if (section === "company_brief" || section === "schedule") {
-    return (
-      <div className="mt-4 rounded-2xl bg-mint p-4">
-        <p className="text-[15px] leading-[1.6] text-ink/70">
-          <b className="font-semibold text-ink">Rewritten.</b>{" "}
-          {section === "schedule"
-            ? "The days were recomputed from the questions you have now."
-            : "The brief was rewritten from the pages we read."}
-        </p>
-      </div>
-    );
-  }
-
-  const survivors = [
-    keptBreakdown?.edited ? `${keptBreakdown.edited} you edited` : null,
-    keptBreakdown?.manual ? `${keptBreakdown.manual} you wrote` : null,
-    keptBreakdown?.pinned ? `${keptBreakdown.pinned} pinned` : null,
-  ].filter(Boolean);
 
   return (
-    <div className="mt-4 rounded-2xl bg-mint p-4">
-      <p className="text-[15px] leading-[1.6] text-ink/70">
-        <b className="font-semibold text-ink">
-          {replaced === 0
-            ? `Nothing was replaced.`
-            : `Replaced ${replaced} generated ${noun}${replaced === 1 ? "" : "s"}.`}
-        </b>{" "}
-        {added > 0 && `Wrote ${added} new ${noun}${added === 1 ? "" : "s"}. `}
-        {kept > 0
-          ? `Kept ${kept} — ${survivors.join(", ")}.`
-          : "There was nothing of yours to keep."}
-      </p>
-    </div>
+    <p className="mt-3 max-w-[320px] rounded-xl bg-mint px-3.5 py-2.5 text-sm font-medium leading-[1.5] text-ink/70">
+      {text}
+    </p>
   );
 }
 
@@ -190,4 +179,3 @@ function pollUntilDone(jobId, timer) {
     tick();
   });
 }
-

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "@/components/Button";
 import EmptyState from "@/components/EmptyState";
 import ErrorCallout from "@/components/ErrorCallout";
@@ -20,7 +20,6 @@ export default function MyKits() {
 
 function KitLibrary() {
   const [result, setResult] = useState({ kits: null, error: null });
-  const [query, setQuery] = useState("");
   const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
@@ -38,19 +37,6 @@ function KitLibrary() {
 
   const { kits, error } = result;
 
-  // The list endpoint has no pagination and returns everything, so filtering here costs
-  // nothing and beats scrolling once there are a dozen kits.
-  const visible = useMemo(() => {
-    if (!kits) return null;
-    const needle = query.trim().toLowerCase();
-    if (!needle) return kits;
-    return kits.filter((kit) =>
-      [kit.source?.company, kit.source?.role, kit.title]
-        .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(needle)),
-    );
-  }, [kits, query]);
-
   async function onDelete(kit) {
     const previous = kits;
     // Optimistic: the card goes immediately, and comes back if the server disagrees.
@@ -67,37 +53,16 @@ function KitLibrary() {
   return (
     <section className="bg-paper px-5 py-16 sm:px-8 lg:px-12 lg:py-24">
       <div className="mx-auto w-full max-w-[1320px]">
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-[38px] font-semibold leading-[1.05] tracking-[-0.045em] text-ink sm:text-5xl">
-              My kits
-            </h1>
-            {kits && kits.length > 0 && (
-              <p className="mt-3 text-[15px] font-medium text-ink/50">
-                {kits.length} kit{kits.length === 1 ? "" : "s"}, newest first.
-              </p>
-            )}
-          </div>
-
-          {/* No New kit button here: the nav carries one on every page, and the grid ends
-              with a ghost card. Two of them on one screen said the same thing twice. */}
-          {kits && kits.length > 1 && (
-            <div className="flex items-center gap-3">
-              <label htmlFor="kit-filter" className="sr-only">
-                Filter kits by company or role
-              </label>
-              <input
-                id="kit-filter"
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Filter by company or role"
-                className="h-11 w-full rounded-xl border border-ink/[0.07] bg-paper px-3.5 text-base sm:text-[15px]
-                           text-ink placeholder:text-ink/35 transition-[border-color,box-shadow]
-                           duration-200 focus:border-accent/40 focus:outline-none
-                           focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-64"
-              />
-            </div>
+        {/* No New kit button here: the nav carries one on every page, and the grid ends
+            with a ghost card. Two of them on one screen said the same thing twice. */}
+        <div>
+          <h1 className="text-[38px] font-semibold leading-[1.05] tracking-[-0.045em] text-ink sm:text-5xl">
+            My kits
+          </h1>
+          {kits && kits.length > 0 && (
+            <p className="mt-3 text-[15px] font-medium text-ink/50">
+              {kits.length} kit{kits.length === 1 ? "" : "s"}, newest first.
+            </p>
           )}
         </div>
 
@@ -127,25 +92,12 @@ function KitLibrary() {
               reading &mdash; the posting text itself, though; we never fetch it from a
               job board.
             </EmptyState>
-          ) : visible.length === 0 ? (
-            <EmptyState
-              title="Nothing matches that."
-              actions={
-                <Button variant="secondary" onClick={() => setQuery("")} className="w-full sm:w-auto">
-                  Clear the filter
-                </Button>
-              }
-            >
-              No kit mentions &ldquo;{query.trim()}&rdquo; in its company or role.
-            </EmptyState>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
-              {visible.map((kit) => (
+              {kits.map((kit) => (
                 <KitCard key={kit._id} kit={kit} onDelete={onDelete} />
               ))}
-              {/* Only when nothing is filtered out — while filtering, the grid is an
-                  answer to a question, and a New kit tile is not part of the answer. */}
-              {!query.trim() && <NewKitCard />}
+              <NewKitCard />
             </div>
           )}
         </div>
