@@ -161,3 +161,74 @@ test('accepts an honest thin kit with no questions and nothing covered', () => {
   const result = validateKit(kit);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
+
+/* ------------------------------------------------ flashcard_ids (additive to App. A) */
+
+test('a schedule day without flashcard_ids is still valid', () => {
+  // The kits persisted before the field existed have days without it, and the fixture
+  // above is one. `.default([])` is what keeps them loadable.
+  const result = validateKit(validKit());
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.schedule.days[0].flashcard_ids, []);
+});
+
+test('accepts a day that schedules a flashcard which exists', () => {
+  const kit = validKit();
+  kit.schedule.days[0].flashcard_ids = ['f1'];
+  assert.equal(validateKit(kit).ok, true);
+});
+
+test('rejects a schedule that references a flashcard which does not exist', () => {
+  const kit = validKit();
+  kit.schedule.days[0].flashcard_ids = ['f99'];
+  expectInvalid(kit, /unknown flashcard "f99"/);
+});
+
+/* -------------------------------------------------- resources (additive to App. A) */
+
+test('a kit without resources is still valid, and defaults to none', () => {
+  // Same contract as flashcard_ids: every kit persisted before the field existed has to
+  // keep loading, so the fixture above deliberately omits it.
+  const result = validateKit(validKit());
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data.resources, []);
+  assert.deepEqual(result.data.schedule.days[0].resource_ids, []);
+});
+
+test('accepts a day that schedules a resource which exists', () => {
+  const kit = validKit();
+  kit.resources = [
+    {
+      id: 'res1',
+      category: 'technical',
+      kind: 'video',
+      title: 'System design basics',
+      url: 'https://www.youtube.com/watch?v=abc123',
+      source: 'YouTube',
+      thumbnail: 'https://img.youtube.com/vi/abc123/hqdefault.jpg',
+    },
+  ];
+  kit.schedule.days[0].resource_ids = ['res1'];
+  assert.equal(validateKit(kit).ok, true);
+});
+
+test('rejects a schedule that references a resource which does not exist', () => {
+  const kit = validKit();
+  kit.schedule.days[0].resource_ids = ['res99'];
+  expectInvalid(kit, /unknown resource "res99"/);
+});
+
+test('rejects two resources sharing an id', () => {
+  const kit = validKit();
+  const resource = {
+    id: 'res1',
+    category: 'technical',
+    kind: 'article',
+    title: 'Interviewing at scale',
+    url: 'https://example.test/post',
+    source: 'example.test',
+    thumbnail: '',
+  };
+  kit.resources = [resource, { ...resource, title: 'Another' }];
+  expectInvalid(kit, /Duplicate id "res1"/);
+});

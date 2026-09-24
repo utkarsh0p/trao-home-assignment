@@ -18,6 +18,17 @@ export const requirementSchema = z.object({
   text: z.string().min(1),
   kind: z.enum(REQUIREMENT_KINDS),
   priority: z.enum(REQUIREMENT_PRIORITIES),
+  /**
+   * An addition to Appendix A, which permits extension but not renaming.
+   *
+   * Which question categories this requirement could honestly be asked about, decided by
+   * the model that read the posting. It replaces the keyword lists planGeneration used to
+   * route by, and it is internal: Kit.toAppendixA picks the Appendix A fields explicitly,
+   * so this never reaches the export or the batch output.
+   *
+   * Defaulted, so kits written before it existed still validate.
+   */
+  supports: z.array(z.enum(QUESTION_CATEGORIES)).default([]),
 });
 
 export const questionSchema = z.object({
@@ -36,11 +47,50 @@ export const flashcardSchema = z.object({
   requirement_ids: z.array(z.string()),
 });
 
+/** What kind of thing a curated resource is. Nothing here is written by a model. */
+export const RESOURCE_KINDS = ['video', 'article'];
+
+/**
+ * A real link, found by searching, that teaches one of the categories this kit asks
+ * about. Every field is either copied from a search result or derived from its URL —
+ * there is no field a model could fill in, which is what keeps CLAUDE.md rule 4 (never
+ * invent) mechanical rather than a matter of prompt wording.
+ */
+export const resourceSchema = z.object({
+  id: z.string().min(1),
+  category: z.enum(QUESTION_CATEGORIES),
+  kind: z.enum(RESOURCE_KINDS),
+  title: z.string().min(1),
+  url: z.string().min(1),
+  // 'YouTube', or the article's host. Derived from the URL, never guessed.
+  source: z.string().default(''),
+  // Derived from a YouTube video id; empty for an article.
+  thumbnail: z.string().default(''),
+});
+
 export const scheduleDaySchema = z.object({
   day: z.number().int().min(1),
   focus: z.string(),
   question_ids: z.array(z.string()),
+  /**
+   * An addition to Appendix A, which permits extension but not renaming.
+   *
+   * Without it the flashcards are a pile the plan never refers to: a user following the
+   * schedule day by day is never told to touch them. Defaulted, so kits written before
+   * it existed still validate.
+   */
+  flashcard_ids: z.array(z.string()).default([]),
+  /**
+   * An addition to Appendix A, which permits extension but not renaming.
+   *
+   * What to watch or read on this day, chosen by the same arithmetic that places the
+   * questions — which is also what makes it survive repair, since repair rebuilds the
+   * schedule from scratch. Defaulted, so kits written before it existed still validate.
+   */
+  resource_ids: z.array(z.string()).default([]),
   // Integer minutes only. The brief calls this out explicitly: no floats.
+  // Resources deliberately do not add to this: the estimate is of the work the kit
+  // asks for, and a link is an offer rather than an assignment.
   minutes: z.number().int().min(0),
 });
 
@@ -65,9 +115,14 @@ export const companyBriefSchema = z.object({
   sources: z.array(z.string()),
 });
 
+export const SENIORITY_LEVELS = ['intern', 'junior', 'mid', 'senior', 'staff', 'unstated'];
+
 export const roleSchema = z.object({
   title: z.string(),
   seniority: z.string(),
+  // Normalised companion to the free-text `seniority`, for planGeneration to branch on.
+  // Also an extension, also absent from the Appendix A export. Defaulted for old kits.
+  seniority_level: z.enum(SENIORITY_LEVELS).default('unstated'),
   responsibilities: z.array(z.string()),
   requirements: z.array(requirementSchema),
 });
@@ -88,6 +143,17 @@ const baseKitSchema = z.object({
    * kits written before it existed still validate.
    */
   notes: z.array(z.string()).default([]),
+
+  /**
+   * An addition to Appendix A, which permits extension but not renaming.
+   *
+   * Videos and articles found by searching for the role, one category at a time. They
+   * are app state in the sense that Kit.toAppendixA() does not export them — the batch
+   * output stays exactly the shape the brief specifies — but they are kit content, so
+   * they are validated like everything else. Defaulted, so kits written before it
+   * existed still validate.
+   */
+  resources: z.array(resourceSchema).default([]),
 
   source: sourceSchema,
   company_brief: companyBriefSchema,
@@ -119,10 +185,13 @@ function reportDuplicates(ids, path, ctx) {
 export const kitSchema = baseKitSchema.superRefine((kit, ctx) => {
   const requirementIds = new Set(kit.role.requirements.map((r) => r.id));
   const questionIds = new Set(kit.questions.map((q) => q.id));
+  const flashcardIds = new Set(kit.flashcards.map((f) => f.id));
+  const resourceIds = new Set((kit.resources ?? []).map((r) => r.id));
 
   reportDuplicates(kit.role.requirements.map((r) => r.id), ['role', 'requirements'], ctx);
   reportDuplicates(kit.questions.map((q) => q.id), ['questions'], ctx);
   reportDuplicates(kit.flashcards.map((f) => f.id), ['flashcards'], ctx);
+  reportDuplicates((kit.resources ?? []).map((r) => r.id), ['resources'], ctx);
 
   // Every question must cite requirements that exist — this is what makes coverage
   // checkable rather than a matter of opinion.
@@ -173,6 +242,25 @@ export const kitSchema = baseKitSchema.superRefine((kit, ctx) => {
           code: z.ZodIssueCode.custom,
           path: ['schedule', 'days', index, 'question_ids'],
           message: `Day ${day.day} schedules unknown question "${qid}".`,
+        });
+      }
+    });
+    // Same rule as question_ids: a day may only point at cards that exist.
+    (day.flashcard_ids ?? []).forEach((fid) => {
+      if (!flashcardIds.has(fid)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['schedule', 'days', index, 'flashcard_ids'],
+          message: `Day ${day.day} schedules unknown flashcard "${fid}".`,
+        });
+      }
+    });
+    (day.resource_ids ?? []).forEach((rid) => {
+      if (!resourceIds.has(rid)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['schedule', 'days', index, 'resource_ids'],
+          message: `Day ${day.day} schedules unknown resource "${rid}".`,
         });
       }
     });
