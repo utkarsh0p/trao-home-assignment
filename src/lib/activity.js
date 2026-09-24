@@ -15,6 +15,21 @@
  * a graph, a network or a database — and so that nothing here can ever reach an LLM.
  */
 
+/** What the link ranker decided a page was, in words a candidate would use. */
+const ROLE_LABEL = {
+  home: 'homepage',
+  hiring: 'careers',
+  about: 'about',
+  blog: 'blog',
+  product: 'product',
+  other: 'page',
+};
+
+/** The one vocabulary for page rows, shared by the nodes and the state-derived backstop. */
+export function pageLabel(role) {
+  return ROLE_LABEL[role] ?? ROLE_LABEL.other;
+}
+
 /** Statuses that describe finished work. A finished row is never reopened. */
 const TERMINAL = new Set(['ok', 'skipped', 'failed']);
 

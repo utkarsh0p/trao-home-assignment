@@ -4,6 +4,7 @@ import { buildSchedule } from '../services/schedule.service.js';
 import { checkCoverage, toCoverageField } from '../services/coverage.service.js';
 import { clampText, dataBlock, generateStructured, isLlmConfigured } from '../lib/llm.js';
 import { crawlSite, expandHub } from '../lib/crawler.js';
+import { emitActivity, pageLabel, searchOutcome } from '../lib/activity.js';
 import { fetchPage } from '../lib/scraper.js';
 import { searchPublicDiscussion } from '../lib/search.js';
 import {
@@ -12,7 +13,7 @@ import {
   coerceCompanyUrl,
   companyNameFromUrl,
 } from '../lib/urlGuard.js';
-import { QUESTION_CATEGORIES } from '../lib/kitSchema.js';
+import { QUESTION_CATEGORIES, SENIORITY_LEVELS } from '../lib/kitSchema.js';
 import { validateKit } from '../lib/kitSchema.js';
 import { AppError } from '../middleware/errorHandler.js';
 
@@ -35,6 +36,19 @@ const asError = (step, error) => ({
   message: String(error?.message ?? error).slice(0, 300),
 });
 
+/**
+ * Every node that does something worth watching reports it, so the progress screen can
+ * show work in flight rather than only work that has finished (src/lib/activity.js).
+ *
+ * `config` is LangGraph's second argument to a node. It is absent when a node is called
+ * directly — which regeneration does — and reporting is then a no-op, which is why no
+ * call site below has to think about it.
+ */
+const reporter = (config, node) => (entry) => emitActivity(config, { node, ...entry });
+
+/** The reason a step failed, in the few words the trail has room for. */
+const failedDetail = (error) => String(error?.code ?? 'STEP_FAILED');
+
 /* ---------------------------------------------------------------------- prepare */
 
 /**
@@ -46,7 +60,8 @@ const asError = (step, error) => ({
  * all"). The single exception is a refusal to fetch a private address, which is a
  * security decision and stays fatal.
  */
-export async function prepare(state) {
+export async function prepare(state, config) {
+  const report = reporter(config, 'prepare');
   const { jd = '', companyUrl = '', days = 1 } = state.input ?? {};
 
   const jdChars = jd.trim().length;
@@ -67,6 +82,14 @@ export async function prepare(state) {
   } catch (error) {
     if (error.code === 'URL_BLOCKED') throw error;
 
+    // Only failure is reported. A company URL that worked is not news, and style.md
+    // §1.6 is explicit that a passing check renders nothing.
+    report({
+      kind: 'check',
+      label: 'company website',
+      status: 'skipped',
+      detail: 'no usable URL given',
+    });
     errors.push(asError('prepare', error));
     notes.push(
       'No usable company website was given, so this kit is built from the job description alone and contains no company research.',
@@ -89,6 +112,14 @@ export async function prepare(state) {
 const requirementExtractionSchema = z.object({
   title: z.string().describe('The role title exactly as the posting gives it'),
   seniority: z.string().describe('e.g. Junior, Mid, Senior, Staff. Empty string if unstated'),
+  // A normalised companion to the free-text `seniority` above, which stays because it is
+  // what the Role tab shows. planGeneration needs to branch on the level, and branching on
+  // free text meant regex-matching the job title — which is how "Software Developer
+  // Intern" came to decide, by keyword, that a posting naming SQL had nothing designable
+  // in it. The model reads the posting; it can say what level the posting is.
+  seniority_level: z
+    .enum(SENIORITY_LEVELS)
+    .describe('The seniority the posting states, normalised. "unstated" if it does not say'),
   location: z.string().describe('Empty string if the posting does not say'),
   responsibilities: z.array(z.string()),
   requirements: z.array(
@@ -98,6 +129,13 @@ const requirementExtractionSchema = z.object({
       priority: z
         .enum(['must', 'nice'])
         .describe('"must" only if the posting states it as required; "nice" for bonus/preferred'),
+      // Which kinds of interview question this requirement could honestly support. This
+      // replaces two keyword lists that were making the same judgement badly: a regex
+      // cannot tell that "knowledge of relational databases" supports a schema-design
+      // question while "own a working laptop" supports nothing at all.
+      supports: z
+        .array(z.enum(QUESTION_CATEGORIES))
+        .describe('Question categories a question about this requirement could be grounded in'),
     }),
   ),
 });
@@ -113,10 +151,29 @@ const EXTRACTION_SYSTEM = [
   '  "must". "bonus", "nice to have", "preferred", "a plus" are "nice".',
   '- kind: "technical" for tools, languages, systems; "behavioural" for collaboration,',
   '  communication, leadership; "domain" for industry or product knowledge.',
+  '- seniority_level is taken from how the POSTING describes the role. Do not infer it from',
+  '  the company, and use "unstated" when the posting does not say.',
+  '',
+  'supports — which kinds of question each requirement could honestly be asked about:',
+  '- "technical": hands-on use of a named tool, language or system.',
+  '- "behavioural": past behaviour, collaboration, communication, handling difficulty.',
+  '- "system-design": an open question about building, structuring or scaling something.',
+  '  Tag this ONLY if a design question would be grounded in what the posting actually says,',
+  '  AND pitched at the seniority the posting states. Designing table structure for a small',
+  '  application suits an intern who is asked for database knowledge; designing a',
+  '  multi-region ingestion pipeline does not.',
+  '- "company-fit": motivation, values, or why this company specifically.',
+  '',
+  'A requirement may support several categories, or none. An EMPTY supports array is a',
+  'correct and useful answer — "available to commit for three months" and "own a working',
+  'laptop" support no interview question at all. Never tag a category merely to fill it:',
+  'an empty question category is a true report, and a strained question is not.',
 ].join('\n');
 
-export async function extractRequirements(state) {
+export async function extractRequirements(state, config) {
+  const report = reporter(config, 'extract_requirements');
   const jd = state.input?.jd ?? '';
+  report({ kind: 'write', label: 'requirements', status: 'running' });
 
   try {
     const result = await generateStructured({
@@ -133,6 +190,7 @@ export async function extractRequirements(state) {
       text: requirement.text,
       kind: requirement.kind,
       priority: requirement.priority,
+      supports: requirement.supports ?? [],
     }));
 
     const notes =
@@ -140,13 +198,21 @@ export async function extractRequirements(state) {
         ? ['No requirements could be extracted from the job description.']
         : [];
 
+    report({
+      kind: 'write',
+      label: 'requirements',
+      status: 'ok',
+      detail: `${requirements.length} found`,
+    });
+
     return {
       requirements,
-      research: { role: { title: result.title, seniority: result.seniority, location: result.location, responsibilities: result.responsibilities } },
+      research: { role: { title: result.title, seniority: result.seniority, seniorityLevel: result.seniority_level, location: result.location, responsibilities: result.responsibilities } },
       notes,
       researchBranchesDone: 1,
     };
   } catch (error) {
+    report({ kind: 'write', label: 'requirements', status: 'failed', detail: failedDetail(error) });
     return {
       requirements: [],
       errors: [asError('extract_requirements', error)],
@@ -158,16 +224,29 @@ export async function extractRequirements(state) {
 
 /* ------------------------------------------------------------- crawl_site (IO) */
 
-export async function crawlSiteNode(state) {
-  if (!state.company?.normalizedUrl) return {};
+export async function crawlSiteNode(state, config) {
+  const report = reporter(config, 'crawl_site');
+  const url = state.company?.normalizedUrl;
+  if (!url) return {};
+
+  const homepage = { kind: 'page', url, label: pageLabel('home') };
+  report({ ...homepage, status: 'running' });
 
   try {
-    const { seedPage, candidates } = await crawlSite(state.company.normalizedUrl);
+    const { seedPage, candidates } = await crawlSite(url);
+    report({
+      ...homepage,
+      status: 'ok',
+      detail: seedPage.title ? String(seedPage.title).slice(0, 80) : `${candidates.length} links`,
+    });
     return {
       linkCandidates: candidates,
       pagesFetched: [{ ...seedPage, role: 'home' }],
     };
   } catch (error) {
+    // The error's step name carries no URL, so before this the trail showed nothing at
+    // all for a homepage that could not be read — the one failure worth seeing most.
+    report({ ...homepage, status: 'failed', detail: failedDetail(error) });
     return {
       errors: [asError('crawl_site', error)],
       notes: [`The company website at ${state.company.normalizedUrl} could not be retrieved.`],
@@ -211,7 +290,14 @@ const RANKING_SYSTEM = [
   'Only return URLs that appear in the provided list.',
 ].join('\n');
 
-export async function rankLinks(state) {
+export async function rankLinks(state, config) {
+  const report = reporter(config, 'rank_links');
+  const queue = (pages) => {
+    for (const page of pages) {
+      report({ kind: 'page', url: page.url, label: pageLabel(page.role), status: 'queued' });
+    }
+  };
+
   const candidates = state.linkCandidates ?? [];
   if (candidates.length === 0) return { rankedPages: [] };
 
@@ -231,6 +317,8 @@ export async function rankLinks(state) {
       .filter((page) => known.has(page.url))
       .sort((a, b) => b.confidence - a.confidence);
 
+    queue(ranked.slice(0, MAX_PAGES_TO_FETCH));
+
     return {
       rankedPages: ranked,
       hiringPageConfidence: result.hiringPageConfidence,
@@ -238,41 +326,55 @@ export async function rankLinks(state) {
     };
   } catch (error) {
     // Fall back to the raw candidate order rather than abandoning the crawl.
-    return {
-      rankedPages: candidates.slice(0, MAX_PAGES_TO_FETCH).map((link) => ({
-        url: link.url,
-        role: 'other',
-        confidence: 0.2,
-      })),
-      errors: [asError('rank_links', error)],
-    };
+    const fallback = candidates.slice(0, MAX_PAGES_TO_FETCH).map((link) => ({
+      url: link.url,
+      role: 'other',
+      confidence: 0.2,
+    }));
+    queue(fallback);
+
+    return { rankedPages: fallback, errors: [asError('rank_links', error)] };
   }
 }
 
 /* -------------------------------------------------------------- expand_hub (IO) */
 
-export async function expandHubNode(state) {
+export async function expandHubNode(state, config) {
+  const report = reporter(config, 'expand_hub');
   const hub = state.bestHubUrl ?? state.rankedPages?.[0]?.url;
   if (!hub) return { expansions: 1 };
+
+  const row = { kind: 'page', url: hub, label: 'hub' };
+  report({ ...row, status: 'running' });
 
   try {
     const seen = new Set((state.linkCandidates ?? []).map((link) => link.url));
     const { candidates } = await expandHub(hub, state.company.origin, seen);
+    report({ ...row, status: 'ok', detail: `${candidates.length} more links` });
     return {
       linkCandidates: candidates,
       expansions: 1,
       notes: [`No obvious hiring page on the homepage, so ${hub} was expanded one level.`],
     };
   } catch (error) {
+    report({ ...row, status: 'failed', detail: failedDetail(error) });
     return { expansions: 1, errors: [asError('expand_hub', error)] };
   }
 }
 
 /* ------------------------------------------------------------- fetch_pages (IO) */
 
-export async function fetchPages(state) {
+export async function fetchPages(state, config) {
+  const report = reporter(config, 'fetch_pages');
+
   const ranked = (state.rankedPages ?? []).slice(0, MAX_PAGES_TO_FETCH);
   if (ranked.length === 0) {
+    report({
+      kind: 'check',
+      label: 'other pages',
+      status: 'skipped',
+      detail: 'no candidates on the site',
+    });
     return {
       notes: ['No candidate pages were found on the company site to read.'],
       researchBranchesDone: 1,
@@ -289,16 +391,33 @@ export async function fetchPages(state) {
   });
 
   // allSettled, not all: one dead link must not lose the pages that did resolve.
-  const settled = await Promise.allSettled(targets.map((page) => fetchPage(page.url)));
+  const settled = await Promise.allSettled(
+    targets.map((page) => {
+      report({ kind: 'page', url: page.url, label: pageLabel(page.role), status: 'running' });
+      return fetchPage(page.url);
+    }),
+  );
 
   const pagesFetched = [];
   const errors = [];
 
   settled.forEach((outcome, index) => {
+    const row = {
+      kind: 'page',
+      url: targets[index].url,
+      label: pageLabel(targets[index].role),
+    };
+
     if (outcome.status === 'fulfilled') {
       pagesFetched.push({ ...outcome.value, role: targets[index].role });
+      report({
+        ...row,
+        status: 'ok',
+        detail: outcome.value.title ? String(outcome.value.title).slice(0, 80) : '',
+      });
     } else {
       errors.push(asError(`fetch_pages:${targets[index].url}`, outcome.reason));
+      report({ ...row, status: 'failed', detail: failedDetail(outcome.reason) });
     }
   });
 
@@ -308,21 +427,64 @@ export async function fetchPages(state) {
 
 /* -------------------------------------------------------- search_discussion (IO) */
 
-export async function searchDiscussion(state) {
+export async function searchDiscussion(state, config) {
+  const report = reporter(config, 'search_discussion');
   const name = state.company?.name;
   if (!name) return { research: { publicDiscussion: null } };
 
+  const row = { kind: 'search', label: 'public discussion' };
+  // Reported before the await, not after it. A Tavily call is two queries against a 15s
+  // timeout; until this line existed the row appeared only once it was over, already
+  // carrying an outcome — which is how a search still in flight came to read
+  // "nothing usable found".
+  report({ ...row, status: 'running', detail: `searching for ${name}` });
+
   try {
-    const { results } = await searchPublicDiscussion(name);
+    const { results, failed, error, configured } = await searchPublicDiscussion(name);
+    report({ ...row, ...searchOutcome({ configured, failed, results }) });
+
+    // Nothing failed and nothing was searched: there is no provider set up. That is a
+    // gap in our configuration, and belongs in notes beside the other honest gaps —
+    // not in researchErrors, which is for things that broke.
+    if (!configured) {
+      return {
+        research: { publicDiscussion: null },
+        notes: [
+          `No web search provider is configured, so this kit has no research into how ${name} interviews. That is a gap in our setup, not evidence that none exists.`,
+        ],
+      };
+    }
+
+    // "We looked and there is nothing" and "we could not look" are different facts, and
+    // the kit must not report the second as the first. The old code collapsed them, so
+    // every kit claimed nothing was found even when the search never ran.
+    if (failed) {
+      return {
+        research: { publicDiscussion: null },
+        errors: [asError('search_discussion', { code: 'SEARCH_UNAVAILABLE', message: error })],
+        notes: [
+          `The web search for public discussion of ${name}’s interview process could not be run, so this kit has none. That is a gap in our research, not evidence that none exists.`,
+        ],
+      };
+    }
+
     if (results.length === 0) {
       return {
         research: { publicDiscussion: null },
         notes: [`No public discussion of ${name}’s interview process was found.`],
       };
     }
+
     return { research: { publicDiscussionHits: results } };
   } catch (error) {
-    return { research: { publicDiscussion: null }, errors: [asError('search_discussion', error)] };
+    report({ ...row, status: 'failed', detail: 'search unavailable' });
+    return {
+      research: { publicDiscussion: null },
+      errors: [asError('search_discussion', error)],
+      notes: [
+        `The web search for public discussion of ${name}’s interview process could not be run, so this kit has none.`,
+      ],
+    };
   }
 }
 
@@ -331,12 +493,23 @@ export async function searchDiscussion(state) {
 const discussionSchema = z.object({
   summary: z.string(),
   formats_mentioned: z.array(z.string()),
+  // The same list, mapped onto the categories we actually generate. planGeneration used to
+  // read this by running a keyword regex over the joined summary text; asking the model
+  // that is already reading the snippets costs nothing and cannot miss a round because it
+  // was described in words we had not thought of.
+  question_categories_mentioned: z
+    .array(z.enum(QUESTION_CATEGORIES))
+    .describe('Which of these kinds of interview the sources say this company runs. Empty if they do not say'),
 });
 
-export async function summarizeDiscussion(state) {
+export async function summarizeDiscussion(state, config) {
+  const report = reporter(config, 'summarize_discussion');
   const hits = state.research?.publicDiscussionHits ?? [];
   // Skipped entirely when the search found nothing — no model call, no invented process.
   if (hits.length === 0) return { researchBranchesDone: 1 };
+
+  const row = { kind: 'write', label: 'how they interview' };
+  report({ ...row, status: 'running' });
 
   const listing = hits.map((hit) => `${hit.title}\n${hit.url}\n${hit.snippet}`).join('\n\n');
 
@@ -344,24 +517,56 @@ export async function summarizeDiscussion(state) {
     const result = await generateStructured({
       schema: discussionSchema,
       name: 'discussion',
-      system:
-        'You summarise what public sources say about how a company interviews. Report only ' +
-        'what the snippets actually claim, and note that it is unverified public discussion. ' +
-        'If the snippets say nothing about interviewing, return an empty summary.',
-      user: `What do these search results say about how ${state.company?.name} interviews?\n\n${dataBlock('SEARCH RESULTS', listing, 6000)}`,
+      system: [
+        'You summarise what public sources say about how a company interviews.',
+        '',
+        'Rules you must follow exactly:',
+        '- Report only what the snippets actually claim, and note that it is unverified',
+        '  public discussion.',
+        '- A web search returns the closest matches it can find, which for a small or',
+        '  obscure company are often about a DIFFERENT company with a similar name.',
+        '  Ignore any snippet that is not clearly about the company named below.',
+        '- If nothing left is about that company, or the snippets say nothing about',
+        '  interviewing, return an empty summary. An empty summary is the correct,',
+        '  useful answer — a plausible process invented from the wrong company is worse',
+        '  than saying nothing.',
+      ].join('\n'),
+      user: `What do these search results say about how ${state.company?.name} interviews? Ignore any result that is about a different company.\n\n${dataBlock('SEARCH RESULTS', listing, 6000)}`,
     });
+
+    // An empty summary is the model correctly refusing to invent a process from results
+    // about the wrong company. Treat it as "nothing found" rather than attaching a blank
+    // section and a list of irrelevant sources to the kit.
+    if (!result.summary.trim()) {
+      report({
+        ...row,
+        status: 'skipped',
+        detail: `nothing about ${state.company?.name}`,
+      });
+      return {
+        research: { publicDiscussion: null },
+        notes: [
+          `Public discussion of ${state.company?.name}’s interview process was searched for, but nothing found was actually about them.`,
+        ],
+        researchBranchesDone: 1,
+      };
+    }
+
+    report({ ...row, status: 'ok', detail: `${hits.length} source${hits.length === 1 ? '' : 's'} read` });
 
     return {
       research: {
         publicDiscussion: {
           summary: result.summary,
           formats: result.formats_mentioned,
+          categories: result.question_categories_mentioned ?? [],
           sources: hits.map((hit) => hit.url),
         },
       },
       researchBranchesDone: 1,
     };
   } catch (error) {
+    report({ ...row, status: 'failed', detail: failedDetail(error) });
     return {
       research: { publicDiscussion: null },
       errors: [asError('summarize_discussion', error)],
@@ -395,6 +600,11 @@ const synthesisSchema = z.object({
   // the field that actually decides whether we claim to know their process.
   hiring_process: z.string(),
   found_hiring_information: z.boolean(),
+  // Which of the categories we generate their published process actually names. Empty
+  // unless the pages say so — the same discipline found_hiring_information already carries.
+  question_categories_mentioned: z
+    .array(z.enum(QUESTION_CATEGORIES))
+    .describe('Which of these kinds of interview their pages say they run. Empty if the pages do not say'),
 });
 
 const SYNTHESIS_SYSTEM = [
@@ -402,16 +612,19 @@ const SYNTHESIS_SYSTEM = [
   '',
   'Ground every sentence in the supplied page text. You must not use outside knowledge about',
   'this company, and you must not infer what they probably do from their name.',
-  'If the pages do not say how they hire, set found_hiring_information to false and leave',
-  'hiring_process empty. Saying "their site does not describe the process" is a correct,',
-  'valuable answer. Inventing a plausible one is a failure.',
+  'If the pages do not say how they hire, set found_hiring_information to false, leave',
+  'hiring_process empty and return an empty question_categories_mentioned. Saying "their',
+  'site does not describe the process" is a correct, valuable answer. Inventing a plausible',
+  'one is a failure, and so is guessing which rounds they probably run.',
 ].join('\n');
 
-export async function synthesizeResearch(state) {
+export async function synthesizeResearch(state, config) {
+  const report = reporter(config, 'synthesize_research');
   const pages = state.pagesFetched ?? [];
 
   // Nothing was retrieved: say so plainly rather than asking a model to fill the gap.
   if (pages.length === 0) {
+    report({ kind: 'write', label: 'company brief', status: 'skipped', detail: 'no pages to read' });
     return {
       research: {
         companyBrief: {
@@ -423,6 +636,9 @@ export async function synthesizeResearch(state) {
       },
     };
   }
+
+  const brief = { kind: 'write', label: 'company brief' };
+  report({ ...brief, status: 'running', detail: `reading ${pages.length} page${pages.length === 1 ? '' : 's'}` });
 
   const corpus = pages
     .map((page) => `URL: ${page.url}\nTITLE: ${page.title}\n${clampText(page.text, 4000)}`)
@@ -440,6 +656,12 @@ export async function synthesizeResearch(state) {
       ? []
       : ['No hiring or careers information was found on the company site.'];
 
+    report({
+      ...brief,
+      status: 'ok',
+      detail: result.found_hiring_information ? 'their process found' : 'no process published',
+    });
+
     return {
       research: {
         companyName: result.company_name?.trim() || null,
@@ -449,10 +671,14 @@ export async function synthesizeResearch(state) {
           sources: pages.map((page) => page.url),
         },
         hiringProcess: result.found_hiring_information ? result.hiring_process : null,
+        hiringCategories: result.found_hiring_information
+          ? (result.question_categories_mentioned ?? [])
+          : [],
       },
       notes,
     };
   } catch (error) {
+    report({ ...brief, status: 'failed', detail: failedDetail(error) });
     return {
       research: {
         companyBrief: {
@@ -469,57 +695,81 @@ export async function synthesizeResearch(state) {
 
 /* --------------------------------------------------- plan_generation (deterministic) */
 
-const SYSTEM_DESIGN_PATTERN =
-  /scal|architect|distributed|microservice|infrastructur|latency|throughput|system design|high availability|data model/i;
-
 /**
- * Deterministic. This is where research actually changes generation rather than
- * merely sitting next to it (.claude/decisions.md): requirements are bucketed per
- * category, weighted by what the hiring page and public discussion actually said.
+ * Deterministic. This is where research actually changes generation rather than merely
+ * sitting next to it (.claude/decisions.md).
+ *
+ * It used to decide by keyword: three regexes — one for "designable" requirement text, one
+ * for system-design language, one for junior/senior job titles — stood in for a judgement
+ * about what a posting is asking for. They were wrong in both directions. "Software
+ * Developer Intern" matched the junior pattern and hard-blocked the category, so a posting
+ * that named SQL and relational databases produced zero design questions; meanwhile a
+ * posting saying nothing designable could pick some up from the company's hiring page.
+ *
+ * So the division of labour is now the one the rest of the pipeline already uses: the
+ * model, which is reading the posting anyway, tags each requirement with the categories it
+ * could honestly support and names the seniority the posting states. This function does
+ * arithmetic over those tags — bucket, count, cap. No text is interpreted here, which is
+ * why it stays pure, deterministic and unit-testable.
  */
 export function planGeneration(state) {
   const requirements = state.requirements ?? [];
+  const role = state.research?.role ?? {};
 
-  const hiringText = [
-    state.research?.hiringProcess,
-    state.research?.publicDiscussion?.summary,
-    ...(state.research?.publicDiscussion?.formats ?? []),
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const level = SENIORITY_LEVELS.includes(role.seniorityLevel) ? role.seniorityLevel : 'unstated';
+  const junior = level === 'intern' || level === 'junior';
+  const senior = level === 'senior' || level === 'staff';
 
-  const emphasisesSystemDesign = SYSTEM_DESIGN_PATTERN.test(hiringText);
-  const emphasisesValues = /values|culture|mission|behavioural|behavioral|leadership/i.test(hiringText);
+  // What the company's own pages and the public discussion say they actually run, as
+  // categories rather than as prose to be scanned.
+  const researched = new Set([
+    ...(state.research?.hiringCategories ?? []),
+    ...(state.research?.publicDiscussion?.categories ?? []),
+  ]);
 
-  const buckets = { technical: [], behavioural: [], 'system-design': [], 'company-fit': [] };
+  /**
+   * Is this kit tagged at all?
+   *
+   * An empty `supports` on one requirement is meaningful — the model read "available to
+   * commit for three months" and correctly judged that it supports no interview question.
+   * But a kit written before tagging existed has empty arrays on every requirement, and
+   * both the Zod and Mongoose schemas default the field to `[]`, so "absent" does not
+   * survive a round trip through validation. Reading the two apart per requirement would
+   * therefore silently empty every bucket on an older kit.
+   *
+   * Decide once, for the whole set: if nothing anywhere carries a tag, this kit predates
+   * tagging and buckets by `kind` — the same model-assigned signal one step coarser, never
+   * keyword matching. If anything does, the tags are trusted, empty ones included.
+   */
+  const tagged = requirements.some((r) => r.supports?.length > 0);
 
+  const supportsOf = (requirement) => {
+    if (tagged) return requirement.supports ?? [];
+    if (requirement.kind === 'behavioural') return ['behavioural'];
+    if (requirement.kind === 'domain') return ['company-fit'];
+    return ['technical'];
+  };
+
+  const buckets = Object.fromEntries(QUESTION_CATEGORIES.map((category) => [category, []]));
   for (const requirement of requirements) {
-    if (requirement.kind === 'behavioural') {
-      buckets.behavioural.push(requirement.id);
-    } else if (requirement.kind === 'domain') {
-      buckets['company-fit'].push(requirement.id);
-    } else {
-      buckets.technical.push(requirement.id);
-      if (SYSTEM_DESIGN_PATTERN.test(requirement.text)) {
-        buckets['system-design'].push(requirement.id);
-      }
+    for (const category of supportsOf(requirement)) {
+      if (buckets[category]) buckets[category].push(requirement.id);
     }
   }
 
-  // The hiring page said they run a design round but no requirement reads that way:
-  // pull the heaviest technical must-haves into system-design anyway.
-  if (emphasisesSystemDesign && buckets['system-design'].length === 0) {
-    buckets['system-design'] = requirements
-      .filter((r) => r.kind === 'technical' && r.priority === 'must')
-      .slice(0, 2)
-      .map((r) => r.id);
-  }
-
-  // Company fit is the one category that stands on the brief rather than the JD, so
-  // it still gets asked even when no requirement was classified as domain knowledge.
+  // Company fit is the one category that stands on the brief rather than the JD, so it is
+  // still asked when no requirement was tagged for it. That is a structural fact about the
+  // category — you can always ask why this company — not a rule about any posting's words.
   if (buckets['company-fit'].length === 0) {
     buckets['company-fit'] = requirements.filter((r) => r.priority === 'must').slice(0, 2).map((r) => r.id);
   }
+
+  // Research can add weight to a category the posting already supports. It can no longer
+  // create one from nothing: a company that runs a design round does not make an intern
+  // posting about laptops into something worth designing.
+  const emphasisesSystemDesign =
+    buckets['system-design'].length > 0 && (senior || researched.has('system-design'));
+  const emphasisesValues = researched.has('behavioural') || researched.has('company-fit');
 
   const counts = {};
   for (const category of QUESTION_CATEGORIES) {
@@ -532,7 +782,7 @@ export function planGeneration(state) {
   }
 
   return {
-    generationPlan: { buckets, counts, emphasisesSystemDesign, emphasisesValues },
+    generationPlan: { buckets, counts, emphasisesSystemDesign, emphasisesValues, senior, junior, level },
     notes: requirements.length === 0 ? ['No requirements were available, so few questions could be generated.'] : [],
   };
 }
@@ -602,10 +852,20 @@ function flashcardContext(state) {
  * concurrent writes cannot collide.
  */
 export function makeQuestionNode(category) {
-  return async function generateQuestionsForCategory(state) {
+  return async function generateQuestionsForCategory(state, config) {
+    const report = reporter(config, `generate_questions_${category.replace('-', '_')}`);
+    const row = { kind: 'write', label: category };
+
     const plan = state.generationPlan;
     const count = plan?.counts?.[category] ?? 0;
-    if (count === 0) return {};
+    // A category the planner zeroed is a decision, and worth seeing: it means nothing in
+    // the posting could honestly ground a question of this kind.
+    if (count === 0) {
+      report({ ...row, status: 'skipped', detail: 'nothing to ground it in' });
+      return {};
+    }
+
+    report({ ...row, status: 'running' });
 
     const ids = new Set(plan.buckets[category]);
     const scoped = (state.requirements ?? []).filter((r) => ids.has(r.id));
@@ -645,10 +905,13 @@ export function makeQuestionNode(category) {
         difficulty: Math.min(3, Math.max(1, Math.round(question.difficulty ?? 2))),
       }));
 
+      report({ ...row, status: 'ok', detail: `${questions.length} written` });
+
       return { questions };
     } catch (error) {
       // A failed category is recorded and left to the coverage check, which will see
       // the resulting gap and try again on the second pass.
+      report({ ...row, status: 'failed', detail: failedDetail(error) });
       return { errors: [asError(`generate_questions:${category}`, error)] };
     }
   };
@@ -684,9 +947,17 @@ const HEDGE = [
 
 const hedges = (text) => HEDGE.some((pattern) => pattern.test(text));
 
-export async function generateFlashcards(state) {
+export async function generateFlashcards(state, config) {
+  const report = reporter(config, 'generate_flashcards');
+  const row = { kind: 'write', label: 'flashcards' };
+
   const requirements = state.requirements ?? [];
-  if (requirements.length === 0) return { flashcards: [] };
+  if (requirements.length === 0) {
+    report({ ...row, status: 'skipped', detail: 'no requirements to write from' });
+    return { flashcards: [] };
+  }
+
+  report({ ...row, status: 'running' });
 
   const listing = requirements.map((r) => `${r.id} [${r.priority}] ${r.text}`).join('\n');
 
@@ -742,8 +1013,11 @@ export async function generateFlashcards(state) {
         requirement_ids: (flashcard.requirement_ids ?? []).filter((id) => knownIds.has(id)),
       }));
 
+    report({ ...row, status: 'ok', detail: `${flashcards.length} written` });
+
     return { flashcards };
   } catch (error) {
+    report({ ...row, status: 'failed', detail: failedDetail(error) });
     return { flashcards: [], errors: [asError('generate_flashcards', error)] };
   }
 }
@@ -751,11 +1025,23 @@ export async function generateFlashcards(state) {
 /* ------------------------------------------------- check_coverage (deterministic) */
 
 /** Set logic only. Never prompted — CLAUDE.md rule 3. */
-export function checkCoverageNode(state) {
+export function checkCoverageNode(state, config) {
   const result = checkCoverage({
     requirements: state.requirements ?? [],
     questions: state.questions ?? [],
     previous: state.coverage,
+  });
+
+  // One row for the whole loop, rewritten on each pass rather than stacked, so the
+  // second pass reads as the same check running again. Reporting a number the set logic
+  // above already produced is not the same as asking anyone to compute it.
+  const gaps = result.uncovered_requirement_ids?.length ?? 0;
+  emitActivity(config, {
+    node: 'check_coverage',
+    kind: 'check',
+    label: 'requirement coverage',
+    status: 'ok',
+    detail: `pass ${result.passes ?? 1} — ${gaps === 0 ? 'every requirement covered' : `${gaps} uncovered`}`,
   });
 
   return { validQuestions: result.questions, coverage: result };
@@ -763,12 +1049,16 @@ export function checkCoverageNode(state) {
 
 /* -------------------------------------------------- generate_gap_questions (LLM) */
 
-export async function generateGapQuestions(state) {
+export async function generateGapQuestions(state, config) {
+  const report = reporter(config, 'generate_gap_questions');
+  const row = { kind: 'write', label: 'questions for the gaps' };
   const coverage = state.coverage;
   const gapIds = [...(coverage?.uncoveredMustIds ?? []), ...coverage.uncovered_requirement_ids].filter(
     (id, index, all) => all.indexOf(id) === index,
   );
   if (gapIds.length === 0) return {};
+
+  report({ ...row, status: 'running', detail: `${gapIds.length} to close` });
 
   const byId = new Map((state.requirements ?? []).map((r) => [r.id, r]));
   const targets = gapIds.slice(0, 8).map((id) => byId.get(id)).filter(Boolean);
@@ -804,8 +1094,11 @@ export async function generateGapQuestions(state) {
       difficulty: Math.min(3, Math.max(1, Math.round(question.difficulty ?? 2))),
     }));
 
+    report({ ...row, status: 'ok', detail: `${questions.length} written` });
+
     return { questions };
   } catch (error) {
+    report({ ...row, status: 'failed', detail: failedDetail(error) });
     return { errors: [asError('generate_gap_questions', error)] };
   }
 }
@@ -817,15 +1110,27 @@ export async function generateGapQuestions(state) {
  * the point at which the per-category prefixes used for safe parallel writes are
  * flattened into the stable ids the kit ships with.
  */
-export function buildScheduleNode(state) {
+export function buildScheduleNode(state, config) {
   const source = state.validQuestions ?? state.questions ?? [];
 
   const finalQuestions = source.map((question, index) => ({ ...question, id: `q${index + 1}` }));
 
+  // Flashcards already carry their stable f1..fn ids (generateFlashcards) and the graph
+  // joins that branch at check_coverage, so they are in state before this node runs.
   const schedule = buildSchedule({
     requirements: state.requirements ?? [],
     questions: finalQuestions,
+    flashcards: state.flashcards ?? [],
     days: state.input?.days ?? 1,
+  });
+
+  const minutes = schedule.days.reduce((total, day) => total + (day.minutes ?? 0), 0);
+  emitActivity(config, {
+    node: 'build_schedule',
+    kind: 'check',
+    label: 'study plan',
+    status: 'ok',
+    detail: `${schedule.days.length} day${schedule.days.length === 1 ? '' : 's'}, ${minutes} minutes`,
   });
 
   return { finalQuestions, schedule };
@@ -866,6 +1171,7 @@ function assembleKit(state) {
     role: {
       title: role.title ?? '',
       seniority: role.seniority ?? '',
+      seniority_level: role.seniorityLevel ?? 'unstated',
       responsibilities: role.responsibilities ?? [],
       requirements: state.requirements ?? [],
     },
@@ -884,9 +1190,17 @@ function assembleKit(state) {
   };
 }
 
-export function validateKitNode(state) {
+export function validateKitNode(state, config) {
   const kit = assembleKit(state);
   const { ok, issues } = validateKit(kit);
+
+  emitActivity(config, {
+    node: 'validate_kit',
+    kind: 'check',
+    label: 'kit structure',
+    status: ok ? 'ok' : 'failed',
+    detail: ok ? 'valid' : `${issues.length} problem${issues.length === 1 ? '' : 's'} to repair`,
+  });
 
   if (ok) return { kit };
   return { kit, errors: [{ step: 'validate_kit', code: 'KIT_INVALID', message: issues.map((i) => `${i.path}: ${i.message}`).join('; ').slice(0, 300) }] };
@@ -900,7 +1214,8 @@ export function validateKitNode(state) {
  * a difficulty outside 1..3. Asking a model to fix those would be slower, cost a call,
  * and risk inventing content, which is the one thing the brief forbids.
  */
-export function repairKitNode(state) {
+export function repairKitNode(state, config) {
+  const report = reporter(config, 'repair_kit');
   const kit = structuredClone(state.kit ?? assembleKit(state));
 
   const requirementIds = new Set(kit.role.requirements.map((r) => r.id));
@@ -934,9 +1249,13 @@ export function repairKitNode(state) {
 
   // Rebuilding the schedule from the cleaned question list is both the simplest and
   // the most reliable repair — it restores the exact day count by construction.
+  // Rebuilt from the CLEANED lists, not the originals: repair has just dropped
+  // malformed questions and cards, and feeding the originals back would reintroduce
+  // exactly the dangling ids the validate step is about to reject.
   kit.schedule = buildSchedule({
     requirements: kit.role.requirements,
     questions: kit.questions,
+    flashcards: kit.flashcards,
     days: state.input?.days ?? kit.schedule?.days_available ?? 1,
   });
 
@@ -947,12 +1266,15 @@ export function repairKitNode(state) {
 
   const { ok, issues } = validateKit(kit);
   if (!ok) {
+    report({ kind: 'check', label: 'kit structure', status: 'failed', detail: 'could not be repaired' });
     throw new AppError(
       'KIT_INVALID',
       `Kit failed validation after repair: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`,
       422,
     );
   }
+
+  report({ kind: 'check', label: 'kit structure', status: 'ok', detail: 'repaired' });
 
   return { kit, notes: ['The generated kit needed structural repair before it validated.'] };
 }

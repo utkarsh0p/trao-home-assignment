@@ -7,6 +7,8 @@ import {
   mergeActivity,
   searchOutcome,
 } from '../src/lib/activity.js';
+import { searchDiscussion } from '../src/graph/nodes.js';
+import { env } from '../src/lib/env.js';
 
 /**
  * The live activity list. These tests pin the two properties the progress screen depends
@@ -105,4 +107,42 @@ test('emitting without a writer is a no-op, so regeneration still runs', () => {
   emitActivity({ writer: (entry) => captured.push(entry) }, row({ status: 'running' }));
   assert.equal(captured.length, 1);
   assert.equal(captured[0].id, 'page:https://acme.test/careers');
+});
+
+test('the search row says it is searching before it says what it found', async () => {
+  // The bug this whole module exists for: the row used to appear only once the search was
+  // over, already carrying an outcome, so a search still in flight read "nothing usable
+  // found" and flipped to "6 sources" seconds later.
+  const captured = [];
+  const config = { writer: (entry) => captured.push(entry) };
+
+  const saved = env.tavilyApiKey;
+  env.tavilyApiKey = '';
+  let notes;
+  try {
+    ({ notes } = await searchDiscussion({ company: { name: 'Acme' } }, config));
+  } finally {
+    env.tavilyApiKey = saved;
+  }
+
+  assert.equal(captured.length, 2);
+  assert.equal(captured[0].status, 'running', 'reported before the await, not after it');
+  assert.equal(captured[0].id, captured[1].id, 'the same row resolves in place');
+
+  // With no key this is "we did not look" — never "we looked and there is nothing".
+  assert.equal(captured[1].status, 'skipped');
+  assert.match(captured[1].detail, /no search provider configured/);
+  assert.match(notes[0], /not evidence that none exists/i);
+});
+
+test('a node called without a graph still runs, and reports nothing', async () => {
+  // Regeneration calls nodes directly, with no config and so no writer.
+  const saved = env.tavilyApiKey;
+  env.tavilyApiKey = '';
+  try {
+    const result = await searchDiscussion({ company: { name: 'Acme' } });
+    assert.equal(result.research.publicDiscussion, null);
+  } finally {
+    env.tavilyApiKey = saved;
+  }
 });
