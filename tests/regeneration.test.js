@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { mergeRegenerated, mintIds, orderForPractice } from '../src/services/kit.service.js';
+import { regenerateSection } from '../src/services/pipeline.service.js';
 
 /**
  * Regeneration must not discard work the user did by hand. The brief calls this "the
@@ -105,4 +106,42 @@ test('practice ordering puts unseen cards first, then least confident', () => {
   ]);
 
   assert.deepEqual(ordered.map((card) => card.id), ['f2', 'f4', 'f3', 'f5', 'f1']);
+});
+
+/* ------------------------------------------------------------ resources survive */
+
+test('rebuilding the schedule keeps the resources on their days', async () => {
+  // The trap this guards: repair_kit and Regenerate → Schedule both rebuild the plan
+  // from scratch, so anything hung off a day from outside would be silently stripped.
+  // Placement lives inside buildSchedule, so a rebuild restores it instead.
+  const kitDoc = {
+    role: {
+      requirements: [
+        { id: 'r1', text: 'React', kind: 'technical', priority: 'must', supports: ['technical'] },
+        { id: 'r2', text: 'Mentoring', kind: 'behavioural', priority: 'must', supports: ['behavioural'] },
+      ],
+      title: 'Engineer',
+      seniority: 'Mid',
+      seniority_level: 'mid',
+      responsibilities: [],
+    },
+    source: { company: 'Acme', company_url: 'https://acme.test', location: '', pages_used: [] },
+    company_brief: { summary: '', what_they_do: '', sources: [] },
+    questions: [
+      { id: 'q1', requirement_ids: ['r1'], category: 'technical', difficulty: 2 },
+      { id: 'q2', requirement_ids: ['r2'], category: 'behavioural', difficulty: 2 },
+    ],
+    flashcards: [],
+    resources: [
+      { id: 'res1', category: 'technical', kind: 'video', title: 'A', url: 'https://x.test/a' },
+      { id: 'res2', category: 'behavioural', kind: 'article', title: 'B', url: 'https://x.test/b' },
+    ],
+    schedule: { days_available: 3 },
+    notes: [],
+  };
+
+  const schedule = await regenerateSection(kitDoc, 'schedule');
+
+  const placed = schedule.days.flatMap((day) => day.resource_ids);
+  assert.deepEqual(placed.sort(), ['res1', 'res2']);
 });
