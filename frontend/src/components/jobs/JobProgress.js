@@ -33,6 +33,11 @@ function Progress({ jobId }) {
   const phase = phaseOf(job?.currentStep);
   if (phase > current) setCurrent(phase);
 
+  // A finished phase collapses to one line so the whole run fits on one screen, but its
+  // rows are not thrown away — one can be reopened at a time, the same discipline the
+  // question rows use.
+  const [reopened, setReopened] = useState(null);
+
   // Every row knows which node reported it, so each phase shows its own work rather
   // than the research phase carrying the whole list.
   const byPhase = useMemo(() => {
@@ -86,90 +91,161 @@ function Progress({ jobId }) {
 
   return (
     <Shell title="Building your kit">
-      <p className="text-[15px] leading-[1.55] text-ink/60 sm:text-xl">
+      <p className="text-[15px] leading-[1.55] text-ink/60 sm:text-lg">
         Researching the company and writing questions against every requirement we found.
         Usually about {TYPICAL_SECONDS} seconds.
       </p>
 
-      <ol className="mt-10 flex flex-col gap-1">
+      {/* Only the step happening now is open. The rest are single lines, so the run
+          reads as a checklist ticking off rather than a page that outgrows the fold
+          exactly when there is most to watch. */}
+      <ol className="mt-8 flex flex-col">
         {PHASES.map((item, index) => (
           <Phase
             key={item.id}
             phase={item}
             state={index < current ? "done" : index === current ? "active" : "pending"}
             step={index === current ? job?.currentStep : null}
-            // A finished phase keeps its rows, so a user who looked away can still see
-            // what was actually read, searched and written.
-            trail={index <= current ? byPhase[index] : null}
+            trail={byPhase[index]}
+            open={index === reopened}
+            onToggle={() => setReopened(index === reopened ? null : index)}
           />
         ))}
       </ol>
 
-      <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-ink/10 pt-6">
-        <span className="text-sm font-medium tabular-nums text-ink/50">
-          {elapsed}s elapsed
-        </span>
-        {elapsed > TYPICAL_SECONDS * 2 && (
-          <span className="text-sm font-medium text-ink/50">
+      {/* One line, not three paragraphs: this is the static part of a screen whose
+          point is the part that moves. */}
+      <p className="mt-6 flex flex-wrap items-center gap-x-2 border-t border-ink/10 pt-5 text-sm font-medium leading-relaxed text-ink/50">
+        <span className="tabular-nums">{elapsed}s elapsed</span>
+        <span aria-hidden="true" className="text-ink/25">&middot;</span>
+        {elapsed > TYPICAL_SECONDS * 2 ? (
+          <span>
             Taking longer than usual &mdash; a slow company site or a rate-limited model
             call will do that. It is still going.
           </span>
+        ) : (
+          <span>
+            You can close this tab; the run keeps going and the kit will be waiting in{" "}
+            <a
+              href="/mykits"
+              className="rounded-lg font-semibold text-accent underline underline-offset-4
+                         transition-colors duration-200 hover:text-accent-dark
+                         focus-visible:outline-none focus-visible:ring-2
+                         focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              My kits
+            </a>
+            .
+          </span>
         )}
-      </div>
-
-      <p className="mt-6 text-sm font-medium leading-relaxed text-ink/50">
-        You can close this tab. The run keeps going on the server, and the kit will be
-        waiting in{" "}
-        <a
-          href="/mykits"
-          className="rounded-lg font-semibold text-accent underline underline-offset-4
-                     transition-colors duration-200 hover:text-accent-dark
-                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
-                     focus-visible:ring-offset-2"
-        >
-          My kits
-        </a>
-        .
       </p>
     </Shell>
   );
 }
 
-function Phase({ phase, state, step, trail }) {
+/**
+ * One step of the run.
+ *
+ * Only the active one is expanded. A finished step is a single line — its blurb
+ * described work nobody is waiting on any more, and four of those blurbs are the
+ * difference between a screen that fits and one that does not. The rows are collapsed
+ * rather than discarded: clicking a finished step brings them back.
+ */
+function Phase({ phase, state, step, trail, open, onToggle }) {
+  const rows = trail ?? [];
+  const showRows = state === "active" || (state === "done" && open);
+
   return (
-    <li className="flex gap-4 py-3">
-      <span className="mt-0.5 shrink-0">
-        {state === "done" ? (
-          <span className="inline-flex size-6 items-center justify-center rounded-full bg-mint">
-            <svg viewBox="0 0 12 12" className="size-3 text-ink" fill="none" stroke="currentColor"
-                 strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2.5 6.2l2.4 2.4 4.6-5" />
-            </svg>
-          </span>
-        ) : state === "active" ? (
-          <span className="inline-flex size-6 items-center justify-center rounded-full bg-accent">
-            <span className="size-2 animate-pulse rounded-full bg-white" />
-          </span>
-        ) : (
-          <span className="inline-flex size-6 items-center justify-center rounded-full border border-ink/10 bg-ink/[0.04]" />
-        )}
+    <li className={state === "active" ? "flex gap-4 py-3" : "flex gap-4 py-1.5"}>
+      <span className={state === "active" ? "mt-0.5 shrink-0" : "shrink-0"}>
+        <Marker state={state} />
       </span>
 
-      <div className="min-w-0">
-        <p
-          className={`text-lg font-semibold tracking-[-0.02em] ${
-            state === "pending" ? "text-ink/35" : "text-ink"
-          }`}
-        >
-          {phase.title}
-        </p>
-        <p className={`mt-1 text-[15px] leading-[1.6] ${state === "pending" ? "text-ink/35" : "text-ink/60"}`}>
-          {state === "active" && step ? labelFor(step) : phase.blurb}
-        </p>
+      <div className="min-w-0 flex-1">
+        {state === "done" ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="group flex w-full cursor-pointer items-center gap-2 rounded-lg text-left
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
+                       focus-visible:ring-offset-2"
+          >
+            <span className="font-semibold tracking-[-0.02em] text-ink/70 transition-colors duration-200 group-hover:text-ink">
+              {phase.title}
+            </span>
+            {rows.length > 0 && (
+              <>
+                <span className="text-sm font-medium text-ink/40">{rows.length}</span>
+                <Chevron open={open} />
+              </>
+            )}
+          </button>
+        ) : (
+          <p
+            className={
+              state === "active"
+                ? "text-lg font-semibold tracking-[-0.02em] text-ink"
+                : "font-semibold tracking-[-0.02em] text-ink/35"
+            }
+          >
+            {phase.title}
+          </p>
+        )}
 
-        {trail?.length > 0 && <Trail entries={trail} />}
+        {/* Only the active step says what it is doing — and it is the one thing on this
+            screen that changes, so it is the live region. */}
+        {state === "active" && (
+          <p aria-live="polite" className="mt-1 text-[15px] leading-[1.6] text-ink/60">
+            {step ? labelFor(step) : phase.blurb}
+          </p>
+        )}
+
+        {showRows && rows.length > 0 && <Trail entries={rows} />}
       </div>
     </li>
+  );
+}
+
+function Marker({ state }) {
+  if (state === "done") {
+    return (
+      <span className="inline-flex size-6 items-center justify-center rounded-full bg-mint">
+        <svg viewBox="0 0 12 12" className="size-3 text-ink" fill="none" stroke="currentColor"
+             strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2.5 6.2l2.4 2.4 4.6-5" />
+        </svg>
+      </span>
+    );
+  }
+
+  if (state === "active") {
+    return (
+      <span className="inline-flex size-6 items-center justify-center rounded-full bg-accent">
+        <span className="size-2 animate-pulse rounded-full bg-white" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex size-6 items-center justify-center rounded-full border border-ink/10 bg-ink/[0.04]" />
+  );
+}
+
+function Chevron({ open }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={`size-3.5 text-ink/30 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
   );
 }
 
@@ -239,7 +315,7 @@ const MARKS = {
 
 function Shell({ title, children }) {
   return (
-    <section className="bg-paper px-5 py-16 sm:px-8 lg:px-12 lg:py-24">
+    <section className="bg-paper px-5 py-10 sm:px-8 sm:py-12 lg:px-12 lg:py-16">
       <div className="mx-auto w-full max-w-[680px]">
         <h1
           aria-live="polite"
