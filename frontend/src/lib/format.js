@@ -36,3 +36,31 @@ export function formatDuration(minutes) {
   if (!hours) return `${rest}m`;
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
+
+/**
+ * A crawled URL, short enough for a narrow column. Mirrors displayUrl in
+ * src/lib/researchTrail.js — the frontend is an independently installed package, so
+ * duplicate-with-a-pointer is the pattern here rather than a cross-package import.
+ */
+export function displayUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const path = `${parsed.pathname}${parsed.search}`.replace(/\/$/, "");
+    return `${parsed.host}${path}` || parsed.host;
+  } catch {
+    return String(url ?? "");
+  }
+}
+
+/**
+ * The publisher of an external link, as its address states it. Mirrors hostLabel in
+ * src/lib/resources.js, where the same value is derived and stored at generation time —
+ * this is for links the server did not label.
+ */
+export function hostLabel(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}

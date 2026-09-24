@@ -1,8 +1,10 @@
 "use client";
 
 import RegenerateButton from "@/components/kit/RegenerateButton";
+import ResourceList from "@/components/kit/ResourceList";
 import { formatDuration } from "@/lib/format";
 import { resolveSchedule, scheduleAudit } from "@/lib/kitDerive";
+import * as api from "@/lib/api";
 
 /**
  * Four kinds of day, each read off the data rather than off the generated `focus` copy.
@@ -15,59 +17,33 @@ const DAY_STYLE = {
   rest: { marker: "bg-ink/[0.04] text-ink/50", label: null },
 };
 
-export default function SchedulePanel({ kit, refetch, onGoToQuestions }) {
+export default function SchedulePanel({ kit, mutate, refetch, onGoToQuestions, onPractise }) {
   const { days, unscheduled, totalMinutes } = resolveSchedule(kit);
   const audit = scheduleAudit(kit);
   const rows = groupRestRuns(days);
 
+  // Which day is "now": the first session still outstanding. A plan you are partway
+  // through should open on the day you owe, not on day one every time.
+  const sessions = days.filter((day) => day.type !== "rest");
+  const done = sessions.filter((day) => day.completedAt);
+  const next = sessions.find((day) => !day.completedAt) ?? null;
+
+  const toggleDay = (day) =>
+    mutate(() => api.setDayComplete(kit._id, day.day, !day.completedAt));
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.035em] text-ink">
-            {audit.daysRequested} day{audit.daysRequested === 1 ? "" : "s"} &middot;{" "}
-            {formatDuration(totalMinutes)} of work
-          </h2>
-          <p className="mt-2 max-w-[560px] text-[15px] leading-[1.6] text-ink/60">
-            Allocation is arithmetic in code, never a model call. The checks below are
-            recomputed from the plan on screen, not copied from the generation run.
-          </p>
-        </div>
+        <h2 className="text-2xl font-semibold tracking-[-0.035em] text-ink">
+          {audit.daysRequested} day{audit.daysRequested === 1 ? "" : "s"} &middot;{" "}
+          {formatDuration(totalMinutes)} of work
+        </h2>
         <RegenerateButton kit={kit} section="schedule" refetch={refetch} label="the schedule" />
       </div>
 
-      <ScheduleChecks audit={audit} />
+      <PlanProgress done={done.length} total={sessions.length} next={next} />
 
-      {/* Adding a question, or regenerating a category, never files it into a day — so
-          this is a state the user reaches easily and should be told about. */}
-      {unscheduled.length > 0 && (
-        <div className="rounded-2xl bg-sand p-5">
-          <p className="text-[15px] leading-[1.6] text-ink/70">
-            <b className="font-semibold text-ink">
-              {unscheduled.length} question{unscheduled.length === 1 ? " is" : "s are"} not in
-              any day.
-            </b>{" "}
-            Questions you add by hand, and questions from a regenerated category, are not
-            filed into the plan automatically. Rebuild the schedule above to place them.
-          </p>
-          <ul className="mt-3 flex flex-wrap gap-2">
-            {unscheduled.map((question) => (
-              <li key={`${question.category}:${question.id}`}>
-                <button
-                  type="button"
-                  onClick={onGoToQuestions}
-                  className="max-w-[320px] cursor-pointer truncate rounded-full bg-white/70 px-3 py-1
-                             text-[11px] font-semibold text-ink/70 transition-opacity duration-200
-                             hover:opacity-80 focus-visible:outline-none focus-visible:ring-2
-                             focus-visible:ring-accent focus-visible:ring-offset-1"
-                >
-                  {question.prompt}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <ScheduleFindings audit={audit} unscheduled={unscheduled} onGoToQuestions={onGoToQuestions} />
 
       {days.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-ink/15 p-8 text-center">
@@ -79,7 +55,13 @@ export default function SchedulePanel({ kit, refetch, onGoToQuestions }) {
             row.kind === "rest" ? (
               <RestRun key={`rest-${row.from}`} from={row.from} to={row.to} />
             ) : (
-              <DayCard key={row.day.day} day={row.day} />
+              <DayCard
+                key={row.day.day}
+                day={row.day}
+                isNext={row.day.day === next?.day}
+                onToggle={toggleDay}
+                onPractise={onPractise}
+              />
             ),
           )}
         </ol>
@@ -89,72 +71,131 @@ export default function SchedulePanel({ kit, refetch, onGoToQuestions }) {
 }
 
 /**
- * The brief (§8) names four properties a schedule must have. The panel used to assert the
- * ordering one in prose and show no evidence; these are computed from the plan on screen,
- * so an edit that breaks one says so. A broken property is `sand` — a finding, not a
- * failure, per style.md §2.
+ * The brief (§8) names four properties a schedule must have, and `scheduleAudit` still
+ * recomputes every one of them from the plan on screen. Only the ones that FAIL render.
+ *
+ * A strip of green ticks confirming that a healthy plan is healthy is the app applauding
+ * itself; the user asked for a schedule, not for evidence that we checked one. So a
+ * schedule that holds says nothing at all, and a schedule that has drifted — after a
+ * delete, a hand-added question, a regenerated category — gets one sand card naming
+ * exactly what is wrong and what to press. Never red: drift is information, not an error.
  */
-function ScheduleChecks({ audit }) {
-  const checks = [
-    audit.daysMatch
-      ? { ok: true, text: `Spans all ${audit.daysRequested} day${audit.daysRequested === 1 ? "" : "s"} you asked for` }
-      : {
-          ok: false,
-          text: `You asked for ${audit.daysRequested} days, the plan has ${audit.daysPlanned}`,
-        },
-    audit.mustTotal === 0
-      ? null
-      : audit.mustUnscheduled.length === 0
-        ? { ok: true, text: `All ${audit.mustTotal} must-have requirement${audit.mustTotal === 1 ? "" : "s"} appear in the plan` }
-        : {
-            ok: false,
-            text: `${audit.mustUnscheduled.length} must-have${audit.mustUnscheduled.length === 1 ? "" : "s"} not in any day: ${audit.mustUnscheduled
-              .map((r) => r.text)
-              .join("; ")}`,
-          },
-    audit.counts.teaching === 0
-      ? null
-      : audit.orderingHolds
-        ? { ok: true, text: "Hardest and highest-priority material lands earliest" }
-        : { ok: false, text: "Something harder now sits after something easier — rebuild to re-sort" },
-    audit.minutesDrift.length === 0
-      ? null
-      : {
-          ok: false,
-          text: `${audit.minutesDrift.length} day${audit.minutesDrift.length === 1 ? "'s" : "s'"} minutes no longer match their questions — deleting a question does not re-time the day`,
-        },
-    audit.dangling.length === 0
-      ? null
-      : {
-          ok: false,
-          text: `${audit.dangling.length} day${audit.dangling.length === 1 ? "" : "s"} still reference${audit.dangling.length === 1 ? "s" : ""} a deleted question`,
-        },
+function ScheduleFindings({ audit, unscheduled, onGoToQuestions }) {
+  const findings = [
+    !audit.daysMatch &&
+      `You asked for ${audit.daysRequested} days, the plan has ${audit.daysPlanned}. Rebuild to re-plan.`,
+
+    audit.mustUnscheduled.length > 0 &&
+      // Two causes, and they take different fixes: the question exists but is in no day
+      // (rebuild), or nothing asks about the requirement at all (write one). Say both
+      // rather than asserting the one that happens to be wrong.
+      `${audit.mustUnscheduled.length} must-have${audit.mustUnscheduled.length === 1 ? " is" : "s are"} in no day: ${audit.mustUnscheduled
+        .map((r) => r.text)
+        .join("; ")}. Rebuild the schedule, or write a question covering them.`,
+
+    audit.counts.teaching > 0 &&
+      !audit.orderingHolds &&
+      "Something harder now sits after something easier. Rebuild to re-sort.",
+
+    audit.minutesDrift.length > 0 &&
+      `${audit.minutesDrift.length} day${audit.minutesDrift.length === 1 ? "'s" : "s'"} minutes no longer match their questions — deleting a question does not re-time its day. Rebuild to re-time.`,
+
+    audit.dangling.length > 0 &&
+      `${audit.dangling.length} day${audit.dangling.length === 1 ? "" : "s"} still reference${audit.dangling.length === 1 ? "s" : ""} a deleted question. Rebuild to drop them.`,
+
+    audit.unscheduledCards.length > 0 &&
+      `${audit.unscheduledCards.length} of ${audit.cardTotal} flashcards are in no day. Rebuild to place them.`,
   ].filter(Boolean);
 
+  const orphans = unscheduled.length;
+  if (findings.length === 0 && orphans === 0) return null;
+
   return (
-    <ul className="flex flex-col gap-2">
-      {checks.map((check) => (
-        <li
-          key={check.text}
-          className={`flex items-start gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] leading-[1.5] text-ink/70 ${
-            check.ok ? "bg-mint" : "bg-sand"
-          }`}
-        >
-          <span aria-hidden="true" className="mt-px shrink-0 font-semibold text-ink">
-            {check.ok ? "✓" : "›"}
-          </span>
-          <span>{check.text}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="rounded-2xl bg-sand p-5">
+      <ul className="flex flex-col gap-2.5">
+        {findings.map((finding) => (
+          <li key={finding} className="text-[15px] leading-[1.6] text-ink/70">
+            {finding}
+          </li>
+        ))}
+        {/* Adding a question, or regenerating a category, never files it into a day — so
+            this is a state the user reaches easily and should be told about. */}
+        {orphans > 0 && (
+          <li className="text-[15px] leading-[1.6] text-ink/70">
+            {orphans} question{orphans === 1 ? " is" : "s are"} not in any day. Rebuild the
+            schedule to place {orphans === 1 ? "it" : "them"}, or{" "}
+            <button
+              type="button"
+              onClick={onGoToQuestions}
+              className="cursor-pointer font-semibold text-ink underline underline-offset-4
+                         focus-visible:outline-none focus-visible:ring-2
+                         focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              go and see them
+            </button>
+            .
+          </li>
+        )}
+      </ul>
+    </div>
   );
 }
 
-function DayCard({ day }) {
-  const style = DAY_STYLE[day.type];
+/** Where you are in the plan, and the one thing to do next. */
+function PlanProgress({ done, total, next }) {
+  if (total === 0) return null;
+  const pct = Math.round((done / total) * 100);
 
   return (
-    <li className="rounded-2xl border border-ink/10 bg-surface p-4 shadow-lifted sm:p-5">
+    <div className="rounded-2xl border border-ink/10 bg-surface p-5 shadow-lifted">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="text-lg font-semibold tracking-[-0.02em] text-ink">
+          {done === total ? "Every session done." : next ? `Next up: day ${next.day}` : "Plan ready."}
+        </p>
+        <p className="text-sm font-medium tabular-nums text-ink/50">
+          {done} of {total} session{total === 1 ? "" : "s"} done
+        </p>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-valuenow={done}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-label="Sessions completed"
+        className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-ink/[0.07]"
+      >
+        <div className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${pct}%` }} />
+      </div>
+
+      {next && (
+        <p className="mt-3 text-[15px] leading-[1.6] text-ink/60">
+          {next.focus} &middot; {formatDuration(next.minutes)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One day. What it is, how long it takes, and the questions in it.
+ *
+ * The requirement pills and the flashcard chip grid that used to sit here were both
+ * grids of `truncate`d sentences — they rendered as ellipsis and meant nothing without a
+ * hover, which a phone does not have. The questions themselves say what the day is for,
+ * and the deck is a count with a button.
+ */
+function DayCard({ day, isNext, onToggle, onPractise }) {
+  const style = DAY_STYLE[day.type];
+  const complete = Boolean(day.completedAt);
+
+  return (
+    <li
+      className={`rounded-2xl border bg-surface p-4 shadow-lifted transition-[border-color,opacity]
+                  duration-200 sm:p-5 ${
+                    isNext ? "border-accent/40" : "border-ink/10"
+                  } ${complete ? "opacity-70" : ""}`}
+    >
       <div className="flex items-start gap-4">
         <span
           className={`inline-flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${style.marker}`}
@@ -174,29 +215,10 @@ function DayCard({ day }) {
             </h3>
             <span className="text-sm font-medium tabular-nums text-ink/50">
               {formatDuration(day.minutes)}
-              {day.minutesDrift !== 0 && (
-                <span className="ml-1.5 font-semibold text-ink/70">
-                  &middot; {formatDuration(day.questions.length * 15)} of material
-                </span>
-              )}
+              {day.cards.length > 0 &&
+                ` · ${day.cards.length} card${day.cards.length === 1 ? "" : "s"}`}
             </span>
           </div>
-
-          {/* What this day is actually FOR. `focus` only names the top two categories; the
-              requirement text is the thing the user is being asked to be ready on. */}
-          {day.requirements.length > 0 && (
-            <ul className="mt-2.5 flex flex-wrap gap-1.5">
-              {day.requirements.map((requirement) => (
-                <li
-                  key={requirement.id}
-                  title={requirement.text}
-                  className="max-w-[280px] truncate rounded-full bg-lavender px-2.5 py-0.5 text-[11px] font-semibold text-ink/70"
-                >
-                  {requirement.text}
-                </li>
-              ))}
-            </ul>
-          )}
 
           {day.questions.length === 0 ? (
             <p className="mt-2 text-[15px] leading-[1.6] text-ink/50">
@@ -214,19 +236,54 @@ function DayCard({ day }) {
                   <span className="min-w-0 flex-1 text-[15px] leading-[1.5] text-ink/70">
                     {question.prompt}
                   </span>
-                  {/* The category pill that used to sit here just restated the day's own
-                      focus, and was hidden on phones anyway. Difficulty is the thing the
-                      ordering claim is made of, so it earns the slot. */}
                   <Difficulty level={question.difficulty ?? 2} />
                 </li>
               ))}
             </ul>
           )}
 
-          {day.repeatQuestions.length > 0 && day.newQuestions.length > 0 && (
-            <p className="mt-2 text-sm font-medium text-ink/50">
-              {day.repeatQuestions.length} of these came round before.
-            </p>
+          {/* Placed by buildSchedule on the days that teach what they are about, so
+              there is nothing to choose here — and nothing on a rest day. */}
+          {day.resources?.length > 0 && (
+            <div className="mt-4 border-t border-ink/[0.07] pt-3">
+              <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink/60 sm:text-xs">
+                Watch and read today
+              </p>
+              <ResourceList resources={day.resources} dense />
+            </div>
+          )}
+
+          {day.type !== "rest" && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onToggle(day)}
+                aria-pressed={complete}
+                className={`inline-flex cursor-pointer items-center gap-2 rounded-xl px-3.5 py-2
+                            text-sm font-semibold transition-colors duration-200
+                            focus-visible:outline-none focus-visible:ring-2
+                            focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                              complete
+                                ? "bg-mint text-ink/70 hover:bg-mint/70"
+                                : "border border-ink/20 bg-white/60 text-ink hover:border-ink/40 hover:bg-surface"
+                            }`}
+              >
+                {complete ? "✓ Done" : "Mark day done"}
+              </button>
+
+              {day.cards.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onPractise}
+                  className="inline-flex cursor-pointer items-center rounded-xl px-3.5 py-2 text-sm
+                             font-semibold text-ink/60 transition-colors duration-200
+                             hover:bg-ink/5 hover:text-ink focus-visible:outline-none
+                             focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                >
+                  Practise the cards
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

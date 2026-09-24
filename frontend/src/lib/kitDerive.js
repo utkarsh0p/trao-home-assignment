@@ -21,6 +21,55 @@ export const CATEGORY_LABELS = {
   "company-fit": "Company fit",
 };
 
+/**
+ * Whether a question is actually usable as prep material, and what is missing if not.
+ *
+ * This exists because a hand-added question is a stub: the API fills `requirement_ids`
+ * with [], `answer_outline` with "" and difficulty with a silent 2. Those three fields
+ * are invisible in the UI but drive schedule ranking and coverage, so a question can be
+ * quietly inert — present in the list, absent from the plan, covering nothing. Surfacing
+ * it is the difference between "I added a question" and "I added a question that does
+ * nothing".
+ */
+export function questionHealth(question) {
+  const missing = [];
+  if (!(question?.answer_outline ?? "").trim()) missing.push("an answer outline");
+  if ((question?.requirement_ids ?? []).length === 0) missing.push("a linked requirement");
+  return { missing, complete: missing.length === 0 };
+}
+
+/**
+ * Why a question category is empty, in the kit's own terms.
+ *
+ * An empty category with no explanation reads as a bug — it was the first thing asked
+ * about the screen. But the explanation has to be the real one, not a standing sentence
+ * about what the generator does in general: the pipeline tags each requirement with the
+ * categories it can honestly support (src/graph/nodes.js planGeneration), so whether this
+ * posting called for system design at all is a fact we hold.
+ *
+ * Returns null when the category is NOT empty, or when there is nothing specific to say.
+ */
+export function categoryEmptyReason(kit, category) {
+  const questions = (kit?.questions ?? []).filter((q) => q.category === category);
+  if (questions.length > 0) return null;
+
+  const requirements = kit?.role?.requirements ?? [];
+  if (requirements.length === 0) {
+    return 'Nothing could be pulled out of this posting to build questions from.';
+  }
+
+  // Kits generated before requirements carried `supports` have no tags to reason from.
+  // Mirrors the kit-level check in planGeneration for exactly the same reason.
+  const tagged = requirements.some((r) => r.supports?.length > 0);
+  if (!tagged) return null;
+
+  const supported = requirements.some((r) => (r.supports ?? []).includes(category));
+  if (supported) return null;
+
+  const label = (CATEGORY_LABELS[category] ?? category).toLowerCase();
+  return `Nothing this posting asks for calls for ${label} questions, so none were written.`;
+}
+
 /** Exactly the server's rule: the only items a regeneration may throw away. */
 export function isReplaceable(item) {
   return item?.origin === "generated" && !item?.pinned;
@@ -39,6 +88,19 @@ export function questionsByCategory(kit) {
     (groups[question.category] ??= []).push(question);
   }
   for (const category of Object.keys(groups)) groups[category].sort(byOrder);
+  return groups;
+}
+
+/**
+ * Resources grouped the way the Questions tab is: by category, in the fixed order.
+ * A category with nothing found simply has an empty list — style.md §1.6, nothing
+ * renders for it.
+ */
+export function resourcesByCategory(kit) {
+  const groups = Object.fromEntries(QUESTION_CATEGORIES.map((category) => [category, []]));
+  for (const resource of kit?.resources ?? []) {
+    groups[resource.category]?.push(resource);
+  }
   return groups;
 }
 
@@ -72,8 +134,30 @@ export function liveCoverage(kit) {
   };
 }
 
-/** Mirrors MINUTES_PER_QUESTION in src/services/schedule.service.js. */
-const MINUTES_PER_QUESTION = 15;
+/**
+ * Mirrors the cost model in src/services/schedule.service.js. The frontend is an
+ * independently-installed package, so duplicate-with-a-pointer is the established
+ * pattern here rather than a cross-package import — if those constants change, these
+ * must follow.
+ */
+const NEW_QUESTION_MINUTES = { 1: 10, 2: 15, 3: 25 };
+const RECALL_QUESTION_MINUTES = { 1: 4, 2: 6, 3: 9 };
+const FLASHCARD_MINUTES = 2;
+const WARM_UP_MINUTES = 5;
+
+const newCost = (q) => NEW_QUESTION_MINUTES[q?.difficulty] ?? 15;
+const recallCost = (q) => RECALL_QUESTION_MINUTES[q?.difficulty] ?? 6;
+
+/** What a day *should* cost, given what it actually holds right now. */
+function expectedMinutes(fresh, recalled, cards) {
+  if (!fresh.length && !recalled.length && !cards.length) return 0;
+  return (
+    WARM_UP_MINUTES +
+    fresh.reduce((sum, q) => sum + newCost(q), 0) +
+    recalled.reduce((sum, q) => sum + recallCost(q), 0) +
+    cards.length * FLASHCARD_MINUTES
+  );
+}
 
 /**
  * Days with their question ids resolved. Dangling ids are dropped rather than rendered
@@ -88,6 +172,9 @@ const MINUTES_PER_QUESTION = 15;
  */
 export function resolveSchedule(kit) {
   const byId = new Map((kit?.questions ?? []).map((q) => [q.id, q]));
+  const cardById = new Map((kit?.flashcards ?? []).map((f) => [f.id, f]));
+  const resourceById = new Map((kit?.resources ?? []).map((r) => [r.id, r]));
+  const scheduledCards = new Set();
   const requirements = kit?.role?.requirements ?? [];
   const knownRequirements = new Map(requirements.map((r) => [r.id, r]));
   const scheduled = new Set();
@@ -105,11 +192,25 @@ export function resolveSchedule(kit) {
       })
       .filter(Boolean);
 
+    const cards = (day.flashcard_ids ?? [])
+      .map((id) => {
+        const card = cardById.get(id);
+        if (card) scheduledCards.add(id);
+        return card;
+      })
+      .filter(Boolean);
+
+    // Placed by buildSchedule, and priced at nothing: a link is an offer, not work the
+    // plan claims minutes for, so these never reach expectedMinutes below.
+    const resources = (day.resource_ids ?? [])
+      .map((id) => resourceById.get(id))
+      .filter(Boolean);
+
     const newQuestions = questions.filter((q) => !seen.has(q.id));
     const repeatQuestions = questions.filter((q) => seen.has(q.id));
     for (const question of questions) seen.add(question.id);
 
-    const type = !questions.length
+    const type = !questions.length && !cards.length
       ? "rest"
       : newQuestions.length
         ? "teaching"
@@ -130,21 +231,24 @@ export function resolveSchedule(kit) {
     }
     dayRequirements.sort((a, b) => (a.priority === b.priority ? 0 : a.priority === "must" ? -1 : 1));
 
+    const expected = expectedMinutes(newQuestions, repeatQuestions, cards);
+
     return {
       ...day,
       questions,
+      cards,
+      resources,
       newQuestions,
       repeatQuestions,
       type,
       requirements: dayRequirements,
       danglingCount: (day.question_ids ?? []).length - questions.length,
+      danglingCardCount: (day.flashcard_ids ?? []).length - cards.length,
+      expectedMinutes: expected,
       // `minutes` is written once by buildSchedule and never recomputed when a question
-      // is deleted, so a day can read "45 min" over two questions. Only meaningful for
-      // teaching days — review days are max(30, n * 10), not n * 15.
-      minutesDrift:
-        type === "teaching" && day.minutes !== questions.length * MINUTES_PER_QUESTION
-          ? day.minutes - questions.length * MINUTES_PER_QUESTION
-          : 0,
+      // or card is deleted, so a day can read "45 min" over work that no longer costs
+      // that. Priced against the same model the server used, for every kind of day.
+      minutesDrift: type === "rest" ? 0 : (day.minutes ?? 0) - expected,
     };
   });
 
@@ -153,6 +257,7 @@ export function resolveSchedule(kit) {
     // Adding or regenerating questions never puts them in a day, so this is a state the
     // user reaches easily and should be told about.
     unscheduled: (kit?.questions ?? []).filter((q) => !scheduled.has(q.id)),
+    unscheduledCards: (kit?.flashcards ?? []).filter((f) => !scheduledCards.has(f.id)),
     totalMinutes: days.reduce((sum, day) => sum + (day.minutes ?? 0), 0),
   };
 }
@@ -170,7 +275,7 @@ export function resolveSchedule(kit) {
  * never re-runs buildSchedule.
  */
 export function scheduleAudit(kit) {
-  const { days, unscheduled } = resolveSchedule(kit);
+  const { days, unscheduled, unscheduledCards } = resolveSchedule(kit);
   const requirements = kit?.role?.requirements ?? [];
   const mustIds = new Set(requirements.filter((r) => r.priority === "must").map((r) => r.id));
 
@@ -216,6 +321,10 @@ export function scheduleAudit(kit) {
     minutesDrift: days.filter((day) => day.minutesDrift !== 0),
     dangling: days.filter((day) => day.danglingCount > 0),
     unscheduledCount: unscheduled.length,
+    // The cards half of the same question: a deck the plan never asks you to open is
+    // the exact failure this schedule rewrite exists to fix, so it is checked, not assumed.
+    cardTotal: (kit?.flashcards ?? []).length,
+    unscheduledCards,
   };
 }
 
