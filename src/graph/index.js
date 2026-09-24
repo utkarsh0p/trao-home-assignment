@@ -59,6 +59,7 @@ export function buildGraph() {
     .addNode('synthesize_research', nodes.synthesizeResearch)
     .addNode('plan_generation', nodes.planGeneration)
     .addNode('generate_flashcards', nodes.generateFlashcards)
+    .addNode('find_resources', nodes.findResources)
     .addNode('check_coverage', nodes.checkCoverageNode)
     .addNode('generate_gap_questions', nodes.generateGapQuestions)
     .addNode('build_schedule', nodes.buildScheduleNode)
@@ -105,14 +106,22 @@ export function buildGraph() {
 
   graph.addEdge('synthesize_research', 'plan_generation');
 
-  // Four categories plus flashcards, all in parallel. Flashcards depend only on
-  // requirements and research, and coverage concerns questions only, so this is free.
+  // Four categories plus flashcards plus the resource search, all in parallel.
+  // Flashcards depend only on requirements and research, coverage concerns questions
+  // only, and the resource search needs nothing but the role title and the plan's
+  // category counts — so all six are free. No barrier is needed here: these land in one
+  // superstep, unlike the research branches (.claude/decisions.md).
   for (const category of QUESTION_CATEGORIES) {
     graph.addEdge('plan_generation', QUESTION_NODE(category));
     graph.addEdge(QUESTION_NODE(category), 'check_coverage');
   }
   graph.addEdge('plan_generation', 'generate_flashcards');
   graph.addEdge('generate_flashcards', 'check_coverage');
+
+  // Network-bound but model-free, so it costs no LLM concurrency and hides entirely
+  // behind the five generation calls above it.
+  graph.addEdge('plan_generation', 'find_resources');
+  graph.addEdge('find_resources', 'check_coverage');
 
   // The second pass. Loops while gaps remain, we are under the cap, and the last pass
   // actually closed some; zero progress breaks immediately.

@@ -7,6 +7,7 @@ import { crawlSite, expandHub } from '../lib/crawler.js';
 import { emitActivity, pageLabel, searchOutcome } from '../lib/activity.js';
 import { fetchPage } from '../lib/scraper.js';
 import { searchPublicDiscussion } from '../lib/search.js';
+import { searchResources } from '../lib/resources.js';
 import {
   assertFetchable,
   canonicalKey,
@@ -1022,6 +1023,56 @@ export async function generateFlashcards(state, config) {
   }
 }
 
+/* ---------------------------------------------------------- find_resources (IO) */
+
+/**
+ * Things to watch and read, one search per category the kit actually asks about.
+ *
+ * No model call: the queries are built from the role title and the hits are filtered by
+ * rule (src/lib/resources.js), so a kit gains real links or none. Runs beside the five
+ * generation calls, which means it is free in wall-clock terms, and it reads only what
+ * plan_generation already decided — a category nobody is writing questions for is a
+ * category nobody needs a video for either.
+ */
+export async function findResources(state, config) {
+  const report = reporter(config, 'find_resources');
+  const role = state.research?.role?.title ?? '';
+  const counts = state.generationPlan?.counts ?? {};
+  const wanted = QUESTION_CATEGORIES.filter((category) => (counts[category] ?? 0) > 0);
+
+  if (!role || wanted.length === 0) return { resources: [] };
+
+  const row = { kind: 'write', label: 'things to watch and read' };
+  report({ ...row, status: 'running', detail: `${wanted.length} categories` });
+
+  try {
+    const { resources, configured } = await searchResources(role, wanted);
+
+    if (!configured) {
+      // The same distinction the public-discussion search keeps: we did not look is not
+      // the same fact as there is nothing to find.
+      report({ ...row, status: 'skipped', detail: 'no search provider configured' });
+      return {
+        resources: [],
+        notes: [
+          'No web search provider is configured, so this kit has no curated videos or articles. That is a gap in our setup, not evidence that none exist.',
+        ],
+      };
+    }
+
+    report({
+      ...row,
+      status: 'ok',
+      detail: resources.length === 0 ? 'nothing found' : `${resources.length} found`,
+    });
+
+    return { resources };
+  } catch (error) {
+    report({ ...row, status: 'failed', detail: failedDetail(error) });
+    return { resources: [], errors: [asError('find_resources', error)] };
+  }
+}
+
 /* ------------------------------------------------- check_coverage (deterministic) */
 
 /** Set logic only. Never prompted — CLAUDE.md rule 3. */
@@ -1121,6 +1172,7 @@ export function buildScheduleNode(state, config) {
     requirements: state.requirements ?? [],
     questions: finalQuestions,
     flashcards: state.flashcards ?? [],
+    resources: state.resources ?? [],
     days: state.input?.days ?? 1,
   });
 
@@ -1184,6 +1236,7 @@ function assembleKit(state) {
       difficulty,
     })),
     flashcards: state.flashcards ?? [],
+    resources: state.resources ?? [],
     notes: state.notes ?? [],
     schedule: state.schedule ?? { days_available: state.input?.days ?? 1, days: [] },
     coverage: toCoverageField(state.coverage),
@@ -1247,6 +1300,21 @@ export function repairKitNode(state, config) {
       requirement_ids: (flashcard.requirement_ids ?? []).filter((id) => requirementIds.has(id)),
     }));
 
+  // Same treatment as questions and cards: anything that cannot be rendered as a link
+  // is dropped, so the rebuild below cannot schedule a resource that does not resolve.
+  const seenResourceIds = new Set();
+  kit.resources = (kit.resources ?? [])
+    .filter((resource) => {
+      if (!resource?.id || seenResourceIds.has(resource.id)) return false;
+      seenResourceIds.add(resource.id);
+      return Boolean(resource.url && resource.title);
+    })
+    .map((resource) => ({
+      ...resource,
+      source: resource.source ?? '',
+      thumbnail: resource.thumbnail ?? '',
+    }));
+
   // Rebuilding the schedule from the cleaned question list is both the simplest and
   // the most reliable repair — it restores the exact day count by construction.
   // Rebuilt from the CLEANED lists, not the originals: repair has just dropped
@@ -1256,6 +1324,7 @@ export function repairKitNode(state, config) {
     requirements: kit.role.requirements,
     questions: kit.questions,
     flashcards: kit.flashcards,
+    resources: kit.resources,
     days: state.input?.days ?? kit.schedule?.days_available ?? 1,
   });
 

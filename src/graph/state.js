@@ -87,6 +87,12 @@ export const KitState = Annotation.Root({
 
   flashcards: last([]),
 
+  /**
+   * Curated videos and articles, written once by find_resources. Single writer, so
+   * `last` is the whole reducer it needs.
+   */
+  resources: last([]),
+
   /** { uncovered_requirement_ids, passes, lastGapCount } */
   coverage: last(null),
   schedule: last(null),
