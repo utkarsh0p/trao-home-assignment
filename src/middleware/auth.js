@@ -14,14 +14,14 @@ export function signToken(userId) {
  * Cookie options shared by login and logout so the two always agree — a logout that
  * sets different options silently fails to clear the cookie.
  *
- * sameSite 'none' + secure in production because the frontend (Vercel) and the API
- * (Render) are different sites; a 'lax' cookie is simply never sent cross-site.
+ * 'lax' because the app is one deploy: Express serves the pages and the API from a
+ * single origin, so the session cookie is first-party and never needs 'none'.
  */
 export function authCookieOptions() {
   return {
     httpOnly: true,
     secure: env.isProduction,
-    sameSite: env.isProduction ? 'none' : 'lax',
+    sameSite: 'lax',
     path: '/',
     maxAge: TOKEN_TTL_SECONDS * 1000,
   };

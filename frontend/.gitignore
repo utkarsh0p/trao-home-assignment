@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# committed on purpose: it is the same-origin API base the production build
+# is compiled with, not a secret.
+!.env.production
 
 # vercel
 .vercel
