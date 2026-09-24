@@ -58,6 +58,8 @@ const NODE_PHASE = {
   check_coverage: 3,
   generate_gap_questions: 3,
 
+  find_resources: 2,
+
   build_schedule: 4,
   validate_kit: 4,
   repair_kit: 4,
@@ -84,6 +86,7 @@ const NODE_LABEL = {
   generate_questions_system_design: "Writing system design questions",
   generate_questions_company_fit: "Writing company-fit questions",
   generate_flashcards: "Writing flashcards",
+  find_resources: "Finding things to watch and read",
 
   check_coverage: "Checking every requirement has a question",
   generate_gap_questions: "Writing questions for what wasn't covered",
@@ -94,6 +97,16 @@ const NODE_LABEL = {
 
   done: "Done",
 };
+
+/**
+ * Which phase an activity row belongs under. Rows carry the node that reported them,
+ * and the mapping already exists here, so a new node needs a line in one file rather
+ * than two. Anything unrecognised — a row stored before a node was renamed — falls back
+ * to research, which is where every row used to live.
+ */
+export function phaseOfNode(node) {
+  return NODE_PHASE[node] ?? 1;
+}
 
 /** Index of the phase a step belongs to, or -1 for steps outside the graph proper. */
 export function phaseOf(step) {

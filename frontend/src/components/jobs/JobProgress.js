@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import ErrorCallout from "@/components/ErrorCallout";
 import RequireAuth from "@/components/RequireAuth";
-import { PHASES, labelFor, phaseOf } from "@/lib/jobSteps";
+import { displayUrl } from "@/lib/format";
+import { PHASES, labelFor, phaseOf, phaseOfNode } from "@/lib/jobSteps";
+
 import { useJob } from "@/lib/useJob";
 
 const TYPICAL_SECONDS = 40;
@@ -30,6 +32,16 @@ function Progress({ jobId }) {
   const [current, setCurrent] = useState(-1);
   const phase = phaseOf(job?.currentStep);
   if (phase > current) setCurrent(phase);
+
+  // Every row knows which node reported it, so each phase shows its own work rather
+  // than the research phase carrying the whole list.
+  const byPhase = useMemo(() => {
+    const buckets = PHASES.map(() => []);
+    for (const entry of job?.trail ?? []) {
+      buckets[phaseOfNode(entry.node)]?.push(entry);
+    }
+    return buckets;
+  }, [job?.trail]);
 
   useEffect(() => {
     if (job?.status === "succeeded" && job.kitId) {
@@ -86,6 +98,9 @@ function Progress({ jobId }) {
             phase={item}
             state={index < current ? "done" : index === current ? "active" : "pending"}
             step={index === current ? job?.currentStep : null}
+            // A finished phase keeps its rows, so a user who looked away can still see
+            // what was actually read, searched and written.
+            trail={index <= current ? byPhase[index] : null}
           />
         ))}
       </ol>
@@ -120,7 +135,7 @@ function Progress({ jobId }) {
   );
 }
 
-function Phase({ phase, state, step }) {
+function Phase({ phase, state, step, trail }) {
   return (
     <li className="flex gap-4 py-3">
       <span className="mt-0.5 shrink-0">
@@ -151,10 +166,76 @@ function Phase({ phase, state, step }) {
         <p className={`mt-1 text-[15px] leading-[1.6] ${state === "pending" ? "text-ink/35" : "text-ink/60"}`}>
           {state === "active" && step ? labelFor(step) : phase.blurb}
         </p>
+
+        {trail?.length > 0 && <Trail entries={trail} />}
       </div>
     </li>
   );
 }
+
+/**
+ * What the run is doing, as it does it.
+ *
+ * Every row is reported by the node doing the work (src/lib/activity.js), which is the
+ * only way a row can read "searching" while the search is still running — graph state
+ * cannot say that, because a node's writes do not land until it returns.
+ *
+ * A URL row puts the address in the mono column and what the page is on the right; a row
+ * with no URL — a search, a category being written, a check — puts its name on the left
+ * and its outcome on the right. Three columns either way, and no pills.
+ */
+function Trail({ entries }) {
+  return (
+    <ul aria-label="What this step is doing" className="mt-3 flex flex-col gap-1">
+      {entries.map((entry) => {
+        const mark = MARKS[entry.status] ?? MARKS.queued;
+        const faded = entry.status === "queued";
+
+        return (
+          <li key={entry.id} className="flex items-baseline gap-2.5 text-sm leading-[1.5]">
+            <span aria-hidden="true" className={`w-3 shrink-0 font-semibold ${mark.tone}`}>
+              {mark.glyph === null ? (
+                <span className="inline-block size-1.5 animate-pulse rounded-full bg-accent align-middle" />
+              ) : (
+                mark.glyph
+              )}
+            </span>
+            <span className="sr-only">{mark.said}</span>
+
+            <span
+              className={`min-w-0 flex-1 truncate ${entry.url ? "font-mono text-[13px]" : ""} ${
+                faded ? "text-ink/35" : "text-ink/70"
+              }`}
+            >
+              {entry.url ? displayUrl(entry.url) : entry.label}
+            </span>
+
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink/40">
+              {entry.url ? entry.label : entry.detail}
+            </span>
+
+            {entry.url && entry.detail && entry.status !== "ok" && (
+              <span className="shrink-0 text-[11px] font-medium text-ink/50">{entry.detail}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Sand-free, and colour-free but for the one accent: a skipped step is information, not
+ * a failure (style.md §2). `skipped` and `failed` are different glyphs because they are
+ * different facts — "we chose not to" versus "we tried and could not".
+ */
+const MARKS = {
+  ok: { glyph: "\u2713", tone: "text-ink/60", said: "done" },
+  running: { glyph: null, tone: "text-accent", said: "in progress" },
+  failed: { glyph: "\u00d7", tone: "text-ink/40", said: "failed" },
+  skipped: { glyph: "\u2013", tone: "text-ink/30", said: "skipped" },
+  queued: { glyph: "\u00b7", tone: "text-ink/25", said: "queued" },
+};
 
 function Shell({ title, children }) {
   return (
@@ -203,3 +284,4 @@ function useElapsed(startedAt) {
 
   return seconds;
 }
+
