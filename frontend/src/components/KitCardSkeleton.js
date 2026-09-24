@@ -4,10 +4,7 @@ export default function KitCardSkeleton() {
       <div className="h-3 w-24 rounded-full bg-ink/[0.04]" />
       <div className="h-6 w-full rounded-lg bg-ink/[0.04]" />
       <div className="h-6 w-2/3 rounded-lg bg-ink/[0.04]" />
-      <div className="mt-2 flex gap-2">
-        <div className="h-6 w-24 rounded-full bg-ink/[0.04]" />
-        <div className="h-6 w-32 rounded-full bg-ink/[0.04]" />
-      </div>
+      <div className="mt-2 h-4 w-3/4 rounded bg-ink/[0.04]" />
     </div>
   );
 }

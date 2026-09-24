@@ -95,28 +95,28 @@ export default function KitCard({ kit, onDelete }) {
         <span className="line-clamp-2">{role}</span>
       </h3>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2">
+      {/* One quiet meta line rather than a row of coloured pills: the same three facts,
+          without three badges competing with the role for attention. */}
+      <p className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-6 text-sm
+                    font-medium leading-relaxed text-ink/50">
         {Number.isFinite(days) && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-sky px-3 py-1 text-xs font-semibold text-ink/70">
-            {days}-day plan
-          </span>
+          <>
+            <span>{days}-day plan</span>
+            <Dot />
+          </>
         )}
-        {gaps === 0 ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-mint px-3 py-1 text-xs font-semibold text-ink/70">
-            Every must-have covered
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-sand px-3 py-1 text-xs font-semibold text-ink/70">
-            {gaps} uncovered
-          </span>
-        )}
-      </div>
-
-      <p className="mt-auto pt-5 text-sm font-medium leading-relaxed text-ink/50">
-        Updated {formatRelative(kit.updatedAt)}
+        <span className={gaps === 0 ? undefined : "text-ink/70"}>
+          {gaps === 0 ? "Every must-have covered" : `${gaps} uncovered`}
+        </span>
+        <Dot />
+        <span>Updated {formatRelative(kit.updatedAt)}</span>
       </p>
     </div>
   );
+}
+
+function Dot() {
+  return <span aria-hidden="true" className="text-ink/25">&middot;</span>;
 }
 
 function TrashGlyph() {
