@@ -1,5 +1,11 @@
 import mongoose from 'mongoose';
-import { QUESTION_CATEGORIES, REQUIREMENT_KINDS, REQUIREMENT_PRIORITIES } from '../lib/kitSchema.js';
+import {
+  QUESTION_CATEGORIES,
+  REQUIREMENT_KINDS,
+  REQUIREMENT_PRIORITIES,
+  RESOURCE_KINDS,
+  SENIORITY_LEVELS,
+} from '../lib/kitSchema.js';
 
 /**
  * Kit: the Appendix A structure, mirrored field-for-field so the builder can do
@@ -11,6 +17,11 @@ import { QUESTION_CATEGORIES, REQUIREMENT_KINDS, REQUIREMENT_PRIORITIES } from '
  *   - order on questions — the persisted sort key behind reorder / move-between-categories.
  *   - confidence / timesSeen / lastSeenAt on flashcards — practice mode.
  *   - notes and errors — honest reporting of what could not be retrieved.
+ *   - flashcard_ids on a schedule day (exported) and completedAt (not exported) — the
+ *     plan has to name the cards it expects you to study, and remember what you finished.
+ *   - resources and resource_ids on a day (NOT exported) — curated links found by
+ *     searching. They are app state by decision: the batch output stays exactly the
+ *     shape the brief specifies, so kits.json is byte-identical to a run without them.
  *
  * toAppendixA() strips all of it back to the exact seven-key shape the brief specifies.
  */
@@ -25,6 +36,9 @@ const requirementSchema = new mongoose.Schema(
     text: { type: String, required: true },
     kind: { type: String, enum: REQUIREMENT_KINDS, required: true },
     priority: { type: String, enum: REQUIREMENT_PRIORITIES, required: true },
+    // Which question categories this requirement can support, per the model that read the
+    // posting. Internal to generation — see the note in lib/kitSchema.js.
+    supports: { type: [String], enum: QUESTION_CATEGORIES, default: [] },
   },
   subdoc,
 );
@@ -64,12 +78,35 @@ const flashcardSchema = new mongoose.Schema(
   subdoc,
 );
 
+const resourceSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    category: { type: String, enum: QUESTION_CATEGORIES, required: true },
+    kind: { type: String, enum: RESOURCE_KINDS, required: true },
+    title: { type: String, required: true },
+    url: { type: String, required: true },
+    // Both derived from the URL at generation time — see src/lib/resources.js.
+    source: { type: String, default: '' },
+    thumbnail: { type: String, default: '' },
+  },
+  subdoc,
+);
+
 const scheduleDaySchema = new mongoose.Schema(
   {
     day: { type: Number, required: true },
     focus: { type: String, default: '' },
     question_ids: { type: [String], default: [] },
+    // Additive to Appendix A, and exported: without it the plan never refers to the
+    // flashcards it expects the user to study.
+    flashcard_ids: { type: [String], default: [] },
+    // Additive, and NOT exported: see the resources note in the header.
+    resource_ids: { type: [String], default: [] },
     minutes: { type: Number, default: 0 },
+
+    // App state, NOT kit structure — deliberately absent from toAppendixA(). This is
+    // what turns the schedule from a plan you read into one you work through.
+    completedAt: { type: Date, default: null },
   },
   subdoc,
 );
@@ -102,12 +139,16 @@ const KitSchema = new mongoose.Schema(
     role: {
       title: { type: String, default: '' },
       seniority: { type: String, default: '' },
+      // Extensions to Appendix A, used by planGeneration. toAppendixA below picks the
+      // Appendix A fields by name, so neither reaches the export or the batch output.
+      seniority_level: { type: String, enum: SENIORITY_LEVELS, default: 'unstated' },
       responsibilities: { type: [String], default: [] },
       requirements: { type: [requirementSchema], default: [] },
     },
 
     questions: { type: [questionSchema], default: [] },
     flashcards: { type: [flashcardSchema], default: [] },
+    resources: { type: [resourceSchema], default: [] },
 
     schedule: {
       days_available: { type: Number, default: 1 },
@@ -196,10 +237,11 @@ KitSchema.methods.toAppendixA = function toAppendixA() {
     flashcards,
     schedule: {
       days_available: kit.schedule.days_available,
-      days: kit.schedule.days.map(({ day, focus, question_ids, minutes }) => ({
+      days: kit.schedule.days.map(({ day, focus, question_ids, flashcard_ids, minutes }) => ({
         day,
         focus,
         question_ids,
+        flashcard_ids: flashcard_ids ?? [],
         minutes,
       })),
     },

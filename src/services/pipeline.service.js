@@ -189,6 +189,8 @@ export async function regenerateSection(kitDoc, section) {
         id: f.id,
         requirement_ids: f.requirement_ids,
       })),
+      // Carried through, or rebuilding the plan would quietly strip its links.
+      resources: (kitDoc.resources ?? []).map((r) => ({ id: r.id, category: r.category })),
       days: kitDoc.schedule.days_available,
     });
   }

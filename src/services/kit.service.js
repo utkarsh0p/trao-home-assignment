@@ -119,6 +119,10 @@ export async function persistKit(userId, { kit, notes = [], researchErrors = [],
       origin: 'generated',
       pinned: false,
     })),
+    // No origin/pinned: resources are read-only. There is nothing to protect from a
+    // regeneration because nothing regenerates them — they belong to the role, not to
+    // the question set.
+    resources: kit.resources ?? [],
     schedule: { ...kit.schedule, origin: 'generated', pinned: false },
     coverage: kit.coverage,
     notes,
@@ -245,6 +249,12 @@ export async function deleteFlashcard(userId, kitId, flashcardId) {
   findItem(kit.flashcards, flashcardId, 'Flashcard');
 
   kit.flashcards = kit.flashcards.filter((flashcard) => flashcard.id !== flashcardId);
+  // Now that days name the cards they expect you to study, a deleted card must not
+  // linger in the plan — the kit would fail its own schema on the next save.
+  kit.schedule.days.forEach((day) => {
+    day.flashcard_ids = (day.flashcard_ids ?? []).filter((id) => id !== flashcardId);
+  });
+
   await kit.save();
   return kit;
 }
@@ -262,6 +272,28 @@ export async function updateBrief(userId, kitId, patch) {
   }
   if (patch.pinned !== undefined) kit.company_brief.pinned = patch.pinned;
 
+  await kit.save();
+  return kit;
+}
+
+/* -------------------------------------------------------------------- schedule */
+
+/**
+ * Marks a day of the plan done, or undoes it.
+ *
+ * `completedAt` is app state rather than kit structure, so it is stored on the day
+ * subdocument and deliberately stripped by toAppendixA() — a kit exported for grading
+ * is the plan, not how far through it someone got.
+ */
+export async function setDayComplete(userId, kitId, dayNumber, complete) {
+  const kit = await loadKit(userId, kitId);
+
+  const day = kit.schedule.days.find((entry) => entry.day === dayNumber);
+  if (!day) {
+    throw new AppError('ITEM_NOT_FOUND', `Day ${dayNumber} is not in this plan.`, 404);
+  }
+
+  day.completedAt = complete ? new Date() : null;
   await kit.save();
   return kit;
 }
@@ -378,6 +410,12 @@ export async function applyRegeneratedSection(userId, kitId, section, generated)
       { prefix: 'f' },
     );
     kit.flashcards = merged.items;
+    // Regeneration mints new ids, so any card the plan still points at may be gone.
+    const liveCardIds = new Set(kit.flashcards.map((f) => f.id));
+    kit.schedule.days.forEach((day) => {
+      day.flashcard_ids = (day.flashcard_ids ?? []).filter((id) => liveCardIds.has(id));
+    });
+
     await kit.save();
     return { kit, skipped: false, replacedCount: merged.replacedCount };
   }
