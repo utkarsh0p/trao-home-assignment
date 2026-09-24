@@ -30,7 +30,8 @@ export async function runGenerationJob(jobId) {
       jd: job.input.jd,
       companyUrl: job.input.companyUrl,
       days: job.input.days,
-      onStep: (step) => updateJobStep(jobId, step),
+      onStep: (step, trail) => updateJobStep(jobId, step, trail),
+      onActivity: (trail, step) => updateJobStep(jobId, step, trail),
     });
 
     const kitDoc = await persistKit(job.userId, {

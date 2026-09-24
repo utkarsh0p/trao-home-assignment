@@ -65,8 +65,12 @@ export async function startJob(jobId) {
  * Called from the graph on every completed node. Deliberately fire-and-forget at the
  * call site: a failed progress write must never take down the run it is reporting on.
  */
-export async function updateJobStep(jobId, step) {
-  return Job.findByIdAndUpdate(jobId, { currentStep: step });
+export async function updateJobStep(jobId, step, trail) {
+  const patch = { currentStep: step };
+  // Only written when the caller has one — a regeneration job reports free-text steps
+  // and has no research trail, and overwriting the field with [] would erase it.
+  if (Array.isArray(trail) && trail.length > 0) patch.trail = trail;
+  return Job.findByIdAndUpdate(jobId, patch);
 }
 
 export async function finishJob(jobId, kitId) {
@@ -112,6 +116,15 @@ export function toStatusPayload(job) {
     kind: job.kind,
     status: job.status,
     currentStep: job.currentStep,
+    trail: (job.trail ?? []).map(({ id, node, kind, url, label, status, detail }) => ({
+      id,
+      node,
+      kind,
+      url,
+      label,
+      status,
+      detail,
+    })),
     kitId: job.kitId ? String(job.kitId) : null,
     section: job.section,
     error: job.error ? { code: job.error.code, message: job.error.message } : null,

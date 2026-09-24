@@ -6,6 +6,8 @@ import {
   synthesizeResearch,
 } from '../graph/nodes.js';
 import { buildSchedule } from './schedule.service.js';
+import { mergeActivity } from '../lib/activity.js';
+import { deriveTrail } from '../lib/researchTrail.js';
 import { fetchPage } from '../lib/scraper.js';
 import { AppError } from '../middleware/errorHandler.js';
 
@@ -17,34 +19,92 @@ import { AppError } from '../middleware/errorHandler.js';
  */
 
 /**
+ * How long activity emissions are allowed to pile up before they are written. The client
+ * polls every 1500ms, so 400ms is indistinguishable from live and bounds a 40s run to
+ * about a hundred writes instead of one per emission.
+ */
+const ACTIVITY_FLUSH_MS = 400;
+
+/**
  * @param {string}   jd          the pasted job description
  * @param {string}   companyUrl  the company website
  * @param {number}   days        how many days until the interview
- * @param {function} onStep      called with each completed node name, for progress
+ * @param {function} onStep      called with (nodeName, trail) as each node completes
+ * @param {function} onActivity  called with (trail, nodeName) as work happens inside a
+ *                               node — debounced. Omit it and nothing is streamed at all.
  * @returns {{ kit, notes, errors }} kit is exactly the Appendix A structure
  */
-export async function runPipeline({ jd, companyUrl, days, caseId = null, onStep = null }) {
+export async function runPipeline({
+  jd,
+  companyUrl,
+  days,
+  caseId = null,
+  onStep = null,
+  onActivity = null,
+}) {
   const graph = getGraph();
 
   const input = { input: { jd, companyUrl, days, caseId } };
   let finalState = null;
 
-  // 'updates' gives us the node that just finished (progress); 'values' gives the
-  // accumulated state, whose last emission is the finished run.
+  // 'updates' gives us the node that just finished; 'values' gives the accumulated
+  // state, whose last emission is the finished run; 'custom' carries what the nodes
+  // report about themselves while they are still running, which is the only way a row
+  // can ever say "doing this now". Asked for only when somebody is listening, so the
+  // batch pays nothing for it.
   const stream = await graph.stream(input, {
-    streamMode: ['updates', 'values'],
+    streamMode: onActivity ? ['updates', 'values', 'custom'] : ['updates', 'values'],
     recursionLimit: RECURSION_LIMIT,
   });
 
+  const trail = [];
+  let lastStep = 'starting';
+  let flushTimer = null;
+
+  const cancelFlush = () => {
+    if (!flushTimer) return;
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  };
+
+  // Progress reporting must never take down the run it is reporting on.
+  const flush = () => {
+    cancelFlush();
+    if (!onActivity || trail.length === 0) return;
+    Promise.resolve(onActivity([...trail], lastStep)).catch(() => {});
+  };
+
+  const armFlush = () => {
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flush();
+    }, ACTIVITY_FLUSH_MS);
+    flushTimer.unref?.();
+  };
+
   for await (const [mode, chunk] of stream) {
-    if (mode === 'updates') {
+    if (mode === 'custom') {
+      mergeActivity(trail, chunk);
+      armFlush();
+    } else if (mode === 'updates') {
       const step = Object.keys(chunk)[0];
-      // Progress reporting must never take down the run it is reporting on.
-      if (onStep && step) await Promise.resolve(onStep(step)).catch(() => {});
+      if (!step) continue;
+      lastStep = step;
+      // The step write carries the trail with it, so a pending flush is redundant.
+      cancelFlush();
+      if (onStep) await Promise.resolve(onStep(step, [...trail])).catch(() => {});
     } else {
       finalState = chunk;
     }
   }
+
+  // The backstop: anything the nodes did not report, recovered from the finished state.
+  // Reports win — this only fills gaps (src/lib/researchTrail.js).
+  for (const entry of deriveTrail(finalState ?? {})) {
+    mergeActivity(trail, entry, { fillOnly: true });
+  }
+  flush();
 
   if (!finalState?.kit) {
     throw new AppError('PIPELINE_FAILED', 'The pipeline finished without producing a kit.', 500);
@@ -65,11 +125,14 @@ export async function runPipeline({ jd, companyUrl, days, caseId = null, onStep 
  * a second, subtly different implementation.
  */
 function stateFromKit(kitDoc) {
+  // `supports` has to come along: planGeneration buckets by it, so dropping it here would
+  // leave every bucket empty and regenerating a single category would produce nothing.
   const requirements = kitDoc.role.requirements.map((r) => ({
     id: r.id,
     text: r.text,
     kind: r.kind,
     priority: r.priority,
+    supports: r.supports ?? [],
   }));
 
   return {
@@ -90,6 +153,7 @@ function stateFromKit(kitDoc) {
       role: {
         title: kitDoc.role.title,
         seniority: kitDoc.role.seniority,
+        seniorityLevel: kitDoc.role.seniority_level ?? 'unstated',
         location: kitDoc.source.location,
         responsibilities: kitDoc.role.responsibilities,
       },
@@ -116,6 +180,10 @@ export async function regenerateSection(kitDoc, section) {
         requirement_ids: q.requirement_ids,
         category: q.category,
         difficulty: q.difficulty,
+      })),
+      flashcards: kitDoc.flashcards.map((f) => ({
+        id: f.id,
+        requirement_ids: f.requirement_ids,
       })),
       days: kitDoc.schedule.days_available,
     });

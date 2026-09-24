@@ -15,6 +15,32 @@ const jobSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     kind: { type: String, enum: JOB_KINDS, default: 'generate' },
+    /**
+     * What the run has done so far, for the progress screen. App state on the job,
+     * never on the kit — Appendix A is untouched by this.
+     *
+     * `id` is what makes a row update in place as it goes from running to done; `node`
+     * is the graph node that reported it, which is how the client files each row under
+     * the right one of the five phases (frontend/src/lib/jobSteps.js).
+     */
+    trail: {
+      type: [
+        new mongoose.Schema(
+          {
+            id: String,
+            node: String,
+            kind: String,
+            url: String,
+            label: String,
+            status: String,
+            detail: String,
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
+
     status: { type: String, enum: JOB_STATUSES, default: 'queued', index: true },
     currentStep: { type: String, default: 'queued' },
 
