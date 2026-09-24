@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "nodemon --watch src --ignore frontend src/server.js",
     "dev:web": "npm --prefix frontend run dev",
-    "build": "npm --prefix frontend ci && npm --prefix frontend run build",
+    "build": "npm --prefix frontend ci --include=dev && npm --prefix frontend run build",
     "start": "node src/server.js",
     "test": "node --test \"tests/**/*.test.js\"",
     "fixtures": "node tests/fixtures/serve.js",
