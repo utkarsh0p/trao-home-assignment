@@ -91,9 +91,13 @@ export async function runPipeline({
       const step = Object.keys(chunk)[0];
       if (!step) continue;
       lastStep = step;
-      // The step write carries the trail with it, so a pending flush is redundant.
-      cancelFlush();
-      if (onStep) await Promise.resolve(onStep(step, [...trail])).catch(() => {});
+      // onStep writes the accumulated trail alongside the step name, so a flush pending
+      // at this moment would write the same rows twice. Without an onStep there is
+      // nothing else writing, and the debounce is left to fire on its own.
+      if (onStep) {
+        cancelFlush();
+        await Promise.resolve(onStep(step, [...trail])).catch(() => {});
+      }
     } else {
       finalState = chunk;
     }
