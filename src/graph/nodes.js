@@ -47,8 +47,13 @@ const asError = (step, error) => ({
  */
 const reporter = (config, node) => (entry) => emitActivity(config, { node, ...entry });
 
-/** The reason a step failed, in the few words the trail has room for. */
-const failedDetail = (error) => String(error?.code ?? 'STEP_FAILED');
+/**
+ * The reason a step failed, in the few words the trail has room for. A coded failure
+ * names its code (PAGE_NOT_FOUND, ROBOTS_DISALLOWED); an uncoded one — a refused
+ * connection, a DNS miss — says so in words, because "STEP_FAILED" tells a candidate
+ * nothing they can act on.
+ */
+const failedDetail = (error) => String(error?.code ?? 'could not be reached');
 
 /* ---------------------------------------------------------------------- prepare */
 

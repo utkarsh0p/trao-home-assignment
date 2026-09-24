@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { connectDb, disconnectDb } from '../db/db.js';
 import { runPipeline } from '../services/pipeline.service.js';
 import { isLlmConfigured } from '../lib/llm.js';
+import { toAppendixA } from '../lib/kitSchema.js';
 
 /**
  * Batch entry point:
@@ -216,7 +217,10 @@ async function runCase(entry, index, total, caseTimeoutMs) {
 
     // A case we could only partially research is still "ok", with the gaps recorded
     // honestly inside the kit. A missing hiring page is not a failure.
-    return { id: entry.id, status: 'ok', kit, error: null };
+    //
+    // Projected, not written raw: the pipeline's kit carries the app's additions, and
+    // this file's output is the one the brief specifies exactly.
+    return { id: entry.id, status: 'ok', kit: toAppendixA(kit), error: null };
   } catch (error) {
     console.error(`${label} failed: ${error.code ?? 'PIPELINE_FAILED'} — ${error.message}`);
     return {

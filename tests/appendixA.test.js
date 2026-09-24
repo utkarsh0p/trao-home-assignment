@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { Kit } from '../src/models/Kit.js';
-import { validateKit } from '../src/lib/kitSchema.js';
+import { toAppendixA, validateKit } from '../src/lib/kitSchema.js';
 
 /**
  * The export shape. Appendix A permits extension, and this app uses several — but what
@@ -93,4 +93,27 @@ test('resources are persisted and validated, but never exported', () => {
 
   // And what is exported is still a valid kit in its own right.
   assert.equal(validateKit(exported).ok, true);
+});
+
+test('the batch path and the persisted path project the same shape', () => {
+  // `npm run evaluate` never touches Mongo, so it projects the pipeline's plain object
+  // through toAppendixA() instead of the document method. The two must not drift: a
+  // field kept out of one and not the other is a kit that changes shape depending on
+  // how it was produced.
+  const persisted = kitDoc().toAppendixA();
+  const batch = toAppendixA({
+    notes: [],
+    source: {},
+    company_brief: {},
+    role: {},
+    questions: [],
+    flashcards: [],
+    resources: [{ id: 'res1' }],
+    schedule: { days_available: 1, days: [{ day: 1, resource_ids: ['res1'], minutes: 0 }] },
+    coverage: {},
+  });
+
+  assert.deepEqual(Object.keys(batch).sort(), Object.keys(persisted).sort());
+  assert.equal('resources' in batch, false);
+  assert.equal('resource_ids' in batch.schedule.days[0], false);
 });

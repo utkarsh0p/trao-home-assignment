@@ -278,6 +278,30 @@ export const kitSchema = baseKitSchema.superRefine((kit, ctx) => {
 });
 
 /**
+ * The Appendix A projection of a plain kit object.
+ *
+ * Two paths produce a kit for the outside world: `Kit.toAppendixA()` for a persisted
+ * one, and `npm run evaluate`, which writes what the pipeline returned without ever
+ * touching Mongo. Both must emit the same shape, so the list of fields that exist for
+ * the app and not for the brief lives here, once.
+ *
+ * `notes` stays — it is how a thin kit says it is thin, which the brief asks for.
+ * `resources` does not: curated links are a feature of the app, and kits.json is
+ * byte-for-byte what it was before they existed.
+ */
+export function toAppendixA(kit) {
+  const { resources, ...rest } = kit ?? {};
+
+  return {
+    ...rest,
+    schedule: {
+      ...rest.schedule,
+      days: (rest.schedule?.days ?? []).map(({ resource_ids, ...day }) => day),
+    },
+  };
+}
+
+/**
  * Non-throwing validation. Returns the parsed kit on success, or a flat list of
  * human-readable issues that can be surfaced in a structured error or a note.
  */
